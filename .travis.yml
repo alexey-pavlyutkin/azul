@@ -1,0 +1,183 @@
+branches:
+  only:
+    integration
+
+notifications:
+  email: false
+
+install: true
+
+language: cpp
+
+jobs:
+  include:
+
+  - stage: regression
+    name: "MSVC x86 -> Windows"
+    os: windows
+    before_install:
+    - unset CC
+    - unset CXX
+    install:
+    - choco upgrade cmake
+    script: '
+      "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x86 &&
+      mkdir build &&
+      cd build &&
+      cmake -G "Visual Studio 15 2017" .. &&
+      cmake --build . --config Release --target install &&
+      ctest -C Release -V'
+
+
+  - stage: regression
+    name: "MSVC x64 -> Windows"
+    os: windows
+    before_install:
+    - unset CC
+    - unset CXX
+    install:
+    - choco upgrade cmake
+    script: '
+      "C:\Program Files (x86)\Microsoft Visual Studio 14.0\VC\vcvarsall.bat" x64 &&
+      mkdir build &&
+      cd build &&
+      cmake -G "Visual Studio 15 2017" .. &&
+      cmake --build . --config Release --target install &&
+      ctest -C Release -V'
+
+
+#
+# Disabled due to MinGW still gets an error in <filesystem> compiling for Windows
+#
+#  - stage: regression
+#    name: "MinGW x64 -> Windows"
+#    os: windows
+#    install:
+#    - choco upgrade cmake
+#    env:
+#    - CC=gcc
+#    - CXX=g++
+#    script: '
+#      mkdir build &&
+#      cd build &&
+#      cmake -G "MinGW Makefiles" .. 
+#          -DCMAKE_BUILD_TYPE:STRING="Release" 
+#          -DCMAKE_SH:STRING="CMAKE_SH-NOTFOUND" 
+#          -DCMAKE_CXX_FLAGS:STRING="-Wall -Wextra -Wpedantic -Werror" &&
+#      cmake --build . --target install &&
+#      ctest -C Release'
+
+
+  - stage: regression
+    name: "GCC -> Linux + code coverage"
+    os: linux
+    dist: focal
+    sudo: false
+    addons:
+     apt:
+       packages:
+       - build-essential
+       - cmake
+    env:
+    - CC=gcc
+    - CXX=g++
+    install:
+    - export PATH=/usr/bin:$PATH
+    script: '
+      mkdir build && 
+      cd build && 
+      cmake -G "Unix Makefiles" .. 
+        -DCMAKE_BUILD_TYPE:STRING="Release" 
+        -DCMAKE_CXX_FLAGS:STRING="-ftest-coverage -fprofile-arcs" 
+        -DCMAKE_EXE_LINKER_FLAGS:STRING="-lgcov --coverage" && 
+      cmake --build . --target install && 
+      ctest -C Release -V && 
+      bash <(curl -s https://codecov.io/bash)'
+
+
+#  - stage: regression
+#    name: "Clang -> Linux (thread sanitizing)"
+#    os: linux
+#    dist: focal
+#    sudo: true
+#    addons:
+#      apt:
+#        packages:
+#        - cmake
+#        - clang
+#        - clang-tools
+#    env:
+#    - CC=clang
+#    - CXX=clang++
+#    install:
+#    - export PATH=/usr/bin:$PATH
+#    script:
+#    - mkdir build && cd build
+#    - |
+#      cmake -G "Unix Makefiles" .. 
+#          -DCMAKE_BUILD_TYPE:STRIN        ="Release"
+#          -DCMAKE_CXX_FLAGS:STRING        ="-fsanitize=thread"
+#          -DCMAKE_EXE_LINKER_FLAGS:STRING ="-fsanitize=thread"
+#    - cmake --build .
+#    - ctest -C Release
+
+
+  - stage: regression
+    name: "Clang -> macOS"
+    os: osx
+    osx_image: xcode11.4
+    env:
+    - CXX=clang++
+    script: '
+      mkdir build &&
+      cd build &&
+      cmake -G "Unix Makefiles" .. -DCMAKE_BUILD_TYPE:STRING="Release" &&
+      cmake --build . --target install &&
+      ctest -C Release -V'
+
+
+#  - name: "Regression: Clang -> Linux-ARM64 (Debug)"
+#    os: linux
+#    dist: bionic
+#    sudo: false
+#    addons:
+#      apt:
+#        sources:
+#        - ubuntu-toolchain-r-test
+#        - sourceline: 'deb https://apt.kitware.com/ubuntu/ bionic main'
+#          key_url: https://apt.kitware.com/keys/kitware-archive-latest.asc
+#        - sourceline: 'deb http://apt.llvm.org/bionic/ llvm-toolchain-bionic main'
+#          key_url: 'https://apt.llvm.org/llvm-snapshot.gpg.key'
+#        packages:
+#        - cmake
+#         - libboost-all-dev-arm64
+#         - clang-7
+#         - lld-7
+#         - libc6-dev-arm64-cross
+#         - libgcc-4.8-dev-arm64-cross
+#         - libstdc++-4.8-dev-arm64-cross
+#     env:
+#     - CXX=/usr/bin/aarch64-linux-gnu-g++
+#     install:
+#     - sudo apt-get update
+#     - sudo apt-get install g++-aarch64-linux-gnu libgcc-8-dev-arm64-cross libstdc++-8-dev-arm64-cross
+#     - sudo apt-get download libboost-all-dev:arm64
+#     - export PATH=/home/travis/bin:/home/travis/.local/bin:/opt/pyenv/shims:/home/travis/.phpenv/shims:/home/travis/perl5/perlbrew/bin:/home/travis/.rvm/gems/ruby-2.7.0/bin:/home/travis/.rvm/gems/ruby-2.7.0@global/bin:/home/travis/.rvm/rubies/ruby-2.7.0/bin:/home/travis/gopath/bin:/home/travis/.gimme/versions/go1.11.1.linux.amd64/bin:/usr/local/clang-7.0.0/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin:/home/travis/.rvm/bin:/home/travis/.phpenv/bin:/opt/pyenv/bin
+#     script:
+#     - mkdir build-debug && cd build-debug
+#     - cmake -G "Unix Makefiles" .. -DCMAKE_BUILD_TYPE="Debug" -DBOOST_ROOT="/usr" -DCMAKE_SYSTEM_NAME="Linux" -DCMAKE_SYSTEM_PROCESSOR="aarch64" -DCMAKE_CXX_COMPILER_TARGET="aarch64-linux-gnu"
+#     - cmake --build .
+
+
+  - stage: deploy
+    name: Auto-merge integration -> master
+    script:
+    - cd ~
+    - git config --global credential.helper store
+    - git config --global user.email "alexey.pavlyutkin@gmail.com"
+    - git config --global user.name "alexey-pavlyutkin"
+    - git clone https://alexey-pavlyutkin:$GITHUB_ACCESS_TOKEN@github.com/$TRAVIS_REPO_SLUG.git $TRAVIS_REPO_SLUG
+    - cd $TRAVIS_REPO_SLUG
+    - git checkout master
+    - git merge origin/intergation
+    - git push
