@@ -46,26 +46,23 @@ jobs:
       ctest -C Release -V'
 
 
-#
-# Disabled due to MinGW still gets an error in <filesystem> compiling for Windows
-#
-#  - stage: regression
-#    name: "MinGW x64 -> Windows"
-#    os: windows
-#    install:
-#    - choco upgrade cmake
-#    env:
-#    - CC=gcc
-#    - CXX=g++
-#    script: '
-#      mkdir build &&
-#      cd build &&
-#      cmake -G "MinGW Makefiles" .. 
-#          -DCMAKE_BUILD_TYPE:STRING="Release" 
-#          -DCMAKE_SH:STRING="CMAKE_SH-NOTFOUND" 
-#          -DCMAKE_CXX_FLAGS:STRING="-Wall -Wextra -Wpedantic -Werror" &&
-#      cmake --build . --target install &&
-#      ctest -C Release'
+  - stage: regression
+    name: "MinGW x64 -> Windows"
+    os: windows
+    install:
+    - choco upgrade cmake
+    env:
+    - CC=gcc
+    - CXX=g++
+    script: '
+      mkdir build &&
+      cd build &&
+      cmake -G "MinGW Makefiles" .. 
+          -DCMAKE_BUILD_TYPE:STRING="Release" 
+          -DCMAKE_SH:STRING="CMAKE_SH-NOTFOUND" 
+          -DCMAKE_CXX_FLAGS:STRING="-Wall -Wextra -Wpedantic -Werror" &&
+      cmake --build . --target install &&
+      ctest -C Release'
 
 
   - stage: regression
