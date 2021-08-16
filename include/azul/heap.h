@@ -352,9 +352,6 @@ namespace azul
                     }
                     else
                     {
-                        // fill <block head ptr> field
-                        *reinterpret_cast< pointer_type* >( floor( aligned_area - sizeof( pointer_type ), std::alignment_of_v< pointer_type > ) ) = garbage_block;
-
                         // there is a reminder
                         if ( tile < garbage_block_tile )
                         {
@@ -377,6 +374,9 @@ namespace azul
                             garbage_block_ref.get() = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
                         }
                     }
+
+                    // fill <block head ptr> field
+                    *reinterpret_cast< pointer_type* >( floor( aligned_area - sizeof( pointer_type ), std::alignment_of_v< pointer_type > ) ) = garbage_block;
 
                     // return aligned region as the result
                     return reinterpret_cast< void* >( aligned_area );
@@ -440,8 +440,8 @@ namespace azul
                 assert( block % granularity_ == 0 );
 
                 // prepend block to garbage ( no reason to touch <block size> field )
-                reinterpret_cast< garbage_block_header* >( piece )->next_ = garbage_;
-                garbage_ = piece;
+                reinterpret_cast< garbage_block_header* >( block )->next_ = garbage_;
+                garbage_ = block;
             }
         }
 

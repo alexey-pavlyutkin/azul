@@ -22,7 +22,7 @@ namespace azul
         //-----------------------------------------------------------------------------------------------------------------------------------------------------
 
         template < typename PolicyType, std::size_t BlockSize >
-        struct set_block_size : public PolicyType
+        struct set_pool_block_size : public PolicyType
         {
             static constexpr std::size_t block_size = BlockSize;
         };
@@ -34,7 +34,7 @@ namespace azul
         };
 
         template < typename Policy, std::size_t Size, std::size_t Alignment, bool Positive, typename ExceptionType = std::exception >
-        struct test_allocate_on_pool
+        struct test_allocate_deallocate_on_pool
         {
             using policy_type = Policy;
             static constexpr std::size_t size = Size;
@@ -43,44 +43,79 @@ namespace azul
             using exception_type = ExceptionType;
         };
 
-        using test_types = ::testing::Types <
-            test_allocate_on_pool< default_policy, 0, 64, false, std::invalid_argument >,
-#ifndef _DEBUG
-            test_allocate_on_pool< default_policy, 1, 0, false, std::invalid_argument >,
-#endif
-            test_allocate_on_pool< default_policy, 1, 1, true >,
-            test_allocate_on_pool< default_policy, 1, 2, true >,
-            test_allocate_on_pool< default_policy, 1, 4, true >,
-#ifndef _DEBUG
-            test_allocate_on_pool< default_policy, 1, 5, true >,
-            test_allocate_on_pool< default_policy, 1, 6, true >,
-            test_allocate_on_pool< default_policy, 1, 7, true >,
-#endif
-            test_allocate_on_pool< default_policy, 1, 1024, true >,
-            test_allocate_on_pool< default_policy, 2047, 1024, true >,
-            test_allocate_on_pool< default_policy, 2048, 512, true >,
-            test_allocate_on_pool< default_policy, 2049, 256, true >,
-            test_allocate_on_pool< default_policy, default_policy::block_size - default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t), std::alignment_of_v< ptrdiff_t >, true >,
-            test_allocate_on_pool< default_policy, default_policy::block_size - default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 * std::alignment_of_v< ptrdiff_t >, true >,
+        template < typename Policy, std::size_t BlockSize, std::size_t Size, std::size_t Alignment, bool Positive >
+        struct test_allocate_on_garbage
+        {
+            using policy_type = Policy;
+            static constexpr std::size_t block_size = BlockSize;
+            static constexpr std::size_t size = Size;
+            static constexpr std::size_t alignment = Alignment;
+            static constexpr bool positive = Positive;
+        };
 
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 0, 64, false, std::invalid_argument >,
+        using test_types = ::testing::Types <
+            test_allocate_deallocate_on_pool< default_policy, 0, 64, false, std::invalid_argument >,
 #ifndef _DEBUG
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 0, false, std::invalid_argument >,
+            test_allocate_deallocate_on_pool< default_policy, 1, 0, false, std::invalid_argument >,
 #endif
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 1, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 2, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 4, true >,
+            test_allocate_deallocate_on_pool< default_policy, 1, 1, true >,
+            test_allocate_deallocate_on_pool< default_policy, 1, 2, true >,
+            test_allocate_deallocate_on_pool< default_policy, 1, 4, true >,
 #ifndef _DEBUG
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 5, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 6, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 7, true >,
+            test_allocate_deallocate_on_pool< default_policy, 1, 5, true >,
+            test_allocate_deallocate_on_pool< default_policy, 1, 6, true >,
+            test_allocate_deallocate_on_pool< default_policy, 1, 7, true >,
 #endif
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 1, 1024, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 2047, 1024, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 2048, 512, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, 2049, 256, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, set_granularity< default_policy, 128 >::block_size - set_granularity< default_policy, 128 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), std::alignment_of_v< ptrdiff_t >, true >,
-            test_allocate_on_pool< set_granularity< default_policy, 128 >, set_granularity< default_policy, 128 >::block_size - set_granularity< default_policy, 128 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 * std::alignment_of_v< ptrdiff_t >, true >
+            test_allocate_deallocate_on_pool< default_policy, 1, 1024, true >,
+            test_allocate_deallocate_on_pool< default_policy, 2047, 1024, true >,
+            test_allocate_deallocate_on_pool< default_policy, 2048, 512, true >,
+            test_allocate_deallocate_on_pool< default_policy, 2049, 256, true >,
+            test_allocate_deallocate_on_pool< default_policy, default_policy::block_size - default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t), std::alignment_of_v< ptrdiff_t >, true >,
+            test_allocate_deallocate_on_pool< default_policy, default_policy::block_size - default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 * std::alignment_of_v< ptrdiff_t >, true >,
+            //
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 0, 64, false, std::invalid_argument >,
+#ifndef _DEBUG
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 0, false, std::invalid_argument >,
+#endif
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 1, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 2, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 4, true >,
+#ifndef _DEBUG
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 5, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 6, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 7, true >,
+#endif
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 1, 1024, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 2047, 1024, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 2048, 512, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, 2049, 256, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, set_granularity< default_policy, 128 >::block_size - set_granularity< default_policy, 128 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), std::alignment_of_v< ptrdiff_t >, true >,
+            test_allocate_deallocate_on_pool< set_granularity< default_policy, 128 >, set_granularity< default_policy, 128 >::block_size - set_granularity< default_policy, 128 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 * std::alignment_of_v< ptrdiff_t >, true >,
+            //
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 0, 64, false, std::invalid_argument >,
+#ifndef _DEBUG
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 0, false, std::invalid_argument >,
+#endif
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 1, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 2, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 4, true >,
+#ifndef _DEBUG
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 5, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 6, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 7, true >,
+#endif
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 1024, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 2047, 1024, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 2048, 512, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 2049, 256, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size - set_pool_block_size< default_policy, 1 << 20 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), std::alignment_of_v< ptrdiff_t >, true >,
+            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size - set_pool_block_size< default_policy, 1 << 20 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 * std::alignment_of_v< ptrdiff_t >, true >,
+            //
+            test_allocate_on_garbage< default_policy, default_policy::granularity, 1, 1, true >,
+            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ), true >,
+            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ) + sizeof( ptrdiff_t ), true >,
+            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ) + 1, sizeof( intptr_t ), false >,
+            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 *( sizeof( intptr_t ) + sizeof( ptrdiff_t ) ), false >
         >;
 
         TYPED_TEST_SUITE( test_heap, test_types, );
@@ -88,7 +123,7 @@ namespace azul
         //-----------------------------------------------------------------------------------------------------------------------------------------------------
 
         template < typename T >
-        struct allocate_on_pool_impl
+        struct allocate_deallocate_on_pool_impl
         {
             static void run( ... ) noexcept {}
 
@@ -97,7 +132,9 @@ namespace azul
                 U&&,
                 decltype( U::size ) size = U::size,
                 decltype( U::alignment ) alignment = U::alignment,
-                decltype( U::positive ) positive = U::positive ) noexcept
+                decltype( U::positive ) positive = U::positive,
+                decltype( U::exception_type ) * e = nullptr
+            ) noexcept
             {
                 //EXPECT_NO_THROW( {
                     try
@@ -127,9 +164,6 @@ namespace azul
                         // check pointer is not NULL
                         EXPECT_TRUE( p );
 
-                        // check beginning of aligned region
-                        EXPECT_GE( reinterpret_cast< intptr_t >( p ), block_head + static_cast< ptrdiff_t >( sizeof( ptrdiff_t ) + sizeof( intptr_t ) ) );
-
                         // check alignment
                         EXPECT_EQ( 0, reinterpret_cast< intptr_t >( p ) % alignment );
 
@@ -144,6 +178,7 @@ namespace azul
                         EXPECT_EQ( 0, block_tile % accessor_type::granularity );
 
                         // check that requested region entirely lays in pool block
+                        EXPECT_GE( reinterpret_cast< intptr_t >( p ), block_head + static_cast< ptrdiff_t >( sizeof( ptrdiff_t ) + sizeof( intptr_t ) ) );
                         EXPECT_LE( reinterpret_cast< intptr_t >( p ) + static_cast< ptrdiff_t >( size ), block_tile );
 
                         // check that the region lays in bound virtual space
@@ -155,7 +190,24 @@ namespace azul
                         EXPECT_EQ( block_head, *block_head_ptr );
 
                         // check block size field contaions valid value
-                        EXPECT_EQ( block_tile  - block_head, *reinterpret_cast< ptrdiff_t* >( block_head ) );
+                        auto block_size = block_tile - block_head;
+                        EXPECT_EQ( block_size, *reinterpret_cast< ptrdiff_t* >( block_head ) );
+
+                        // deallocate region
+                        heap.deallocate( p, size, alignment );
+
+                        // check that garbage is not empty
+                        auto garbage_head = accessor_type::garbage_begin( heap );
+                        EXPECT_NE( garbage_head, accessor_type::garbage_end( heap ) );
+
+                        // check that garbage points exactly to just deallocated block
+                        EXPECT_EQ( static_cast< intptr_t >( garbage_head ), block_head );
+
+                        // check size field
+                        EXPECT_EQ( block_size, garbage_head->size_ );
+                            
+                        // check next field
+                        EXPECT_FALSE( garbage_head->next_ );
                     }
                     catch ( const U::exception_type& )
                     {
@@ -170,9 +222,106 @@ namespace azul
             void operator()() const noexcept { run( T() ); }
         };
 
-        TYPED_TEST( test_heap, allocate_on_pool )
+        TYPED_TEST( test_heap, allocate_deallocate_on_pool )
         {
-            allocate_on_pool_impl< TypeParam >()( );
+            allocate_deallocate_on_pool_impl< TypeParam >()( );
+        }
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        template < typename T >
+        struct allocate_on_garbage_impl
+        {
+            static void run( ... ) noexcept {}
+
+            template < typename U >
+            static void run(
+                U&&,
+                decltype( U::block_size ) block_size = U::block_size,
+                decltype( U::size ) size = U::size,
+                decltype( U::alignment ) alignment = U::alignment,
+                decltype( U::positive ) positive = U::positive ) noexcept
+            {
+                //EXPECT_NO_THROW( {
+                try
+                {
+                    using heap_type = typename test_heap< U >::heap_type;
+                    using accessor_type = typename test_heap< U >::accessor_type;
+
+                    heap_type heap;
+                    {
+                        // allocate block an pool and deallocate it
+                        auto p = heap.allocate( block_size - sizeof( ptrdiff_t ) - sizeof( intptr_t ), 1 );
+                        ASSERT_TRUE( p );
+                        heap.deallocate( p, size, 1 );
+
+                        // make sure there is right block on garbage
+                        ASSERT_NE( accessor_type::garbage_begin( heap ), accessor_type::garbage_end( heap ) );
+                        ASSERT_EQ( static_cast< ptrdiff_t >( block_size ), accessor_type::garbage_begin( heap )->size_ );
+                        ASSERT_FALSE( accessor_type::garbage_begin( heap )->next_ );
+                    }
+
+                    // remember pool state
+                    auto pool_head = accessor_type::pool_begin( heap );
+                    auto pool_unallocated = pool_head->unallocated_;
+
+
+                    auto garbage_head = accessor_type::garbage_begin( heap );
+                    auto garbage_block_head = static_cast< intptr_t >( garbage_head );
+                    auto garbage_block_tile = garbage_block_head + garbage_head->size_;
+
+                    // allocate region again
+                    auto p = heap.allocate( size, alignment );
+                    
+                    if ( positive )
+                    {
+                        // check that pool stays untouched
+                        EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
+                        EXPECT_EQ( pool_unallocated, pool_head->unallocated_ );
+
+                        // check garbage is empty
+                        EXPECT_EQ( accessor_type::garbage_begin( heap ), accessor_type::garbage_end( heap ) );
+
+                        // check pointer to allocated region is not NULL
+                        EXPECT_TRUE( p );
+
+                        // check alignment
+                        EXPECT_EQ( 0, reinterpret_cast< intptr_t >( p ) % alignment );
+
+                        // check that requested region entirely lays in pool block
+                        EXPECT_GE( garbage_block_head + static_cast< ptrdiff_t >( sizeof( intptr_t ) + sizeof( ptrdiff_t ) ), reinterpret_cast< intptr_t >( p ) );
+                        EXPECT_LE( reinterpret_cast< intptr_t >( p ) + static_cast< ptrdiff_t >( size ), garbage_block_tile );
+
+                        // check block head field points to beginning of the block
+                        auto head_ptr_alignment = std::alignment_of_v< intptr_t >;
+                        auto block_head_ptr = reinterpret_cast< intptr_t* >( ( ( reinterpret_cast< intptr_t > ( p ) - sizeof( intptr_t ) ) / head_ptr_alignment ) * head_ptr_alignment );
+                        EXPECT_EQ( garbage_block_head, *block_head_ptr );
+
+                        // check block size field contaions valid value
+                        EXPECT_EQ( garbage_block_tile - garbage_block_head, *reinterpret_cast< ptrdiff_t* >( garbage_block_head ) );
+                    }
+                    else
+                    {
+                        // check garbage is untouched
+                        EXPECT_EQ( garbage_head, accessor_type::garbage_begin( heap ) );
+                    }
+
+                    // release the block
+                    if ( p ) heap.deallocate( p, size, alignment );
+                }
+                catch ( ... )
+                {
+                    FAIL();
+                }
+                //} );
+            }
+
+            void operator()() const noexcept { run( T() ); }
+        };
+
+        TYPED_TEST( test_heap, allocate_on_garbage_impl )
+        {
+            allocate_on_garbage_impl< TypeParam >()( );
         }
 
         //-----------------------------------------------------------------------------------------------------------------------------------------------------

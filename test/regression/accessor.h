@@ -39,6 +39,7 @@ namespace azul
                 self_type operator++( int ) noexcept { self_type tmp = *this; ++( *this ); return tmp; }
                 bool friend operator==( const self_type& lhs, const self_type& rhs ) noexcept { return lhs.it_ == rhs.it_; }
                 bool friend operator!=( const self_type& lhs, const self_type& rhs ) noexcept { return !( lhs == rhs ); }
+                explicit operator intptr_t() const noexcept { return it_; }
 
             private:
                 pointer_type it_ = 0;
@@ -52,7 +53,7 @@ namespace azul
             static pool_iterator pool_begin( const HeapType& heap ) noexcept { return pool_iterator( heap.pool_ ); }
             static pool_iterator pool_end( const HeapType& ) noexcept { return pool_iterator(); }
             static garbage_iterator garbage_begin( const HeapType& heap ) noexcept { return garbage_iterator( heap.garbage_ ); }
-            static garbage_iterator garbage_end( const HeapType& heap ) noexcept { return garbage_iterator(); }
+            static garbage_iterator garbage_end( const HeapType& ) noexcept { return garbage_iterator(); }
 
             static std::size_t pool_size( const HeapType& heap ) noexcept
             {
