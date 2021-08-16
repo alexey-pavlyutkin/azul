@@ -50,10 +50,22 @@ namespace azul
             static constexpr std::size_t block_size = BlockSize;
             static constexpr std::size_t size = Size;
             static constexpr std::size_t alignment = Alignment;
-            static constexpr bool positive = Positive;
+            static constexpr bool allocation_on_garbage_expected = Positive;
+        };
+
+        template < typename Policy, std::size_t BlockSize, std::size_t Size, std::size_t Alignment, bool Positive >
+        struct test_allocate_on_garbage_with_splitting
+        {
+            using policy_type = Policy;
+            static constexpr std::size_t block_size = BlockSize;
+            static constexpr std::size_t size = Size;
+            static constexpr std::size_t alignment = Alignment;
+            static constexpr bool splitting_expected = Positive;
         };
 
         using test_types = ::testing::Types <
+
+            // allocation on pool
             test_allocate_deallocate_on_pool< default_policy, 0, 64, false, std::invalid_argument >,
 #ifndef _DEBUG
             test_allocate_deallocate_on_pool< default_policy, 1, 0, false, std::invalid_argument >,
@@ -110,12 +122,18 @@ namespace azul
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 2049, 256, true >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size - set_pool_block_size< default_policy, 1 << 20 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), std::alignment_of_v< ptrdiff_t >, true >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size - set_pool_block_size< default_policy, 1 << 20 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 * std::alignment_of_v< ptrdiff_t >, true >,
-            //
+
+            // allocation on garbage without splitting
             test_allocate_on_garbage< default_policy, default_policy::granularity, 1, 1, true >,
             test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ), true >,
             test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ) + sizeof( ptrdiff_t ), true >,
             test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ) + 1, sizeof( intptr_t ), false >,
-            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 *( sizeof( intptr_t ) + sizeof( ptrdiff_t ) ), false >
+#ifndef _DEBUG
+            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ) + sizeof( ptrdiff_t ) + 1, false >,
+#endif
+
+            // allocation on garbage with splitting
+            test_allocate_on_garbage_with_splitting< default_policy, 2 * default_policy::granularity, 1, 1, true >
         >;
 
         TYPED_TEST_SUITE( test_heap, test_types, );
@@ -240,7 +258,7 @@ namespace azul
                 decltype( U::block_size ) block_size = U::block_size,
                 decltype( U::size ) size = U::size,
                 decltype( U::alignment ) alignment = U::alignment,
-                decltype( U::positive ) positive = U::positive ) noexcept
+                decltype( U::allocation_on_garbage_expected ) allocation_on_garbage_expected = U::allocation_on_garbage_expected ) noexcept
             {
                 //EXPECT_NO_THROW( {
                 try
@@ -273,7 +291,7 @@ namespace azul
                     // allocate region again
                     auto p = heap.allocate( size, alignment );
                     
-                    if ( positive )
+                    if ( allocation_on_garbage_expected )
                     {
                         // check that pool stays untouched
                         EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
