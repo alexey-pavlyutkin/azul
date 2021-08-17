@@ -485,7 +485,7 @@ namespace azul
             while ( pool_ )
             {
                 auto next = reinterpret_cast< pool_block_header* >( pool_ )->next_;
-                ::VirtualFree( reinterpret_cast< LPVOID >( pool_ ), 0, MEM_RELEASE );
+                virtual_free( reinterpret_cast< void* >( pool_ ), pool_block_size() );
                 pool_ = next;
             }
         }

@@ -25,7 +25,7 @@ namespace azul
             struct iterator
             {
                 using iterator_category = std::forward_iterator_tag;
-                using value_type = typename ValueType;
+                using value_type = ValueType;
                 using difference_type = ptrdiff_t;
                 using pointer = const value_type*;
                 using reference = const value_type&;

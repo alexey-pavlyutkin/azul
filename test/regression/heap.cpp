@@ -6,6 +6,7 @@
 #include <tuple>
 #include <utility>
 #include <limits>
+#include <cstring>
 
 namespace azul
 {
@@ -336,7 +337,6 @@ namespace azul
             ) noexcept
             {
                 using heap_type = typename test_heap< U >::heap_type;
-                using accessor_type = typename test_heap< U >::accessor_type;
 
                 try
                 {
@@ -344,7 +344,7 @@ namespace azul
                     [[maybe_unused]]auto p = heap.allocate( requested_size, requested_alignment );
                     GTEST_FAIL();
                 }
-                catch ( const U::exception_type& )
+                catch ( const typename U::exception_type& )
                 {
                 }
                 catch ( ... )
