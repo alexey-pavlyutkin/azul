@@ -58,7 +58,7 @@ namespace azul
             static std::size_t pool_size( const HeapType& heap ) noexcept
             {
                 std::size_t sz = 0;
-                for ( auto it = pool_begin(), end = pool_end(); it != end; ++it, ++sz );
+                for ( auto it = pool_begin( heap ), end = pool_end( heap ); it != end; ++it, ++sz );
                 return sz;
             }
 
