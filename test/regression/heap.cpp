@@ -480,23 +480,34 @@ namespace azul
                 try
                 {
                     heap_type heap;
+
+                    // allocate a half of the 1st pool block
                     auto lock_sz = accessor_type::pool_block_size / 2 - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
                     auto lock_block = heap.allocate( lock_sz, 1 );
                     ASSERT_TRUE( lock_block );
 
+                    // get free space in the 1st pool block
                     auto pool_head = accessor_type::pool_begin( heap );
                     auto block_free_space = static_cast< intptr_t >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
 
+                    // allocate requested size
                     auto p = heap.allocate( requested_size, requested_alignment );
+
+                    // check allocated memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
+
+                    // get memory block for the piece
                     auto [ block_size, block_head ] = test_heap< U >::get_piece_internal_fields( p );
 
+                    // if the 1st pool block could fit the piece
                     if ( block_size <= block_free_space )
                     {
+                        // check that pool didn't grow
                         EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
                     }
                     else
                     {
+                        // else make sure the pool has grown
                         EXPECT_EQ( static_cast< intptr_t >( pool_head ), accessor_type::pool_begin( heap )->next_ );
                     }
 
