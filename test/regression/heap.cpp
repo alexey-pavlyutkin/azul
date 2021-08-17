@@ -19,17 +19,28 @@ namespace azul
             using heap_type = heap< policy_type >;
             using accessor_type = accessor< heap_type >;
 
+            static ptrdiff_t calculate_block_size( std::size_t piece_size, std::size_t piece_alignment ) noexcept
+            {
+                return ( ( accessor_type::piece_internal_fields_size / piece_alignment ) * piece_alignment + piece_size / accessor_type::granularity ) * accessor_type::granularity;
+            }
+
+            static std::tuple< ptrdiff_t, intptr_t > get_piece_internal_fields( void* piece ) noexcept
+            {
+                static constexpr auto block_head_ptr_alignment = std::alignment_of_v< intptr_t >;
+                auto block_head_ptr = *reinterpret_cast< intptr_t* >( ( ( reinterpret_cast< intptr_t >( piece ) - sizeof( intptr_t ) ) / block_head_ptr_alignment ) * block_head_ptr_alignment );
+                auto block_size = *reinterpret_cast< ptrdiff_t* >( block_head_ptr );
+                return { block_size, block_head_ptr };
+            }
+
             static void check_memory_piece( void* p, std::size_t size, std::size_t alignment )
             {
                 EXPECT_TRUE( p );
                 //
                 EXPECT_EQ( 0, reinterpret_cast< intptr_t >( p ) % alignment );
                 //
-                static constexpr auto block_head_ptr_alignment = std::alignment_of_v< intptr_t >;
-                auto block_head = *reinterpret_cast< intptr_t* >( ( ( reinterpret_cast< intptr_t >( p ) - sizeof( intptr_t ) ) / block_head_ptr_alignment ) * block_head_ptr_alignment );
+                auto [block_size, block_head] = get_piece_internal_fields( p );
                 EXPECT_EQ( 0, block_head % policy_type::granularity );
                 //
-                auto block_size = *reinterpret_cast< ptrdiff_t* >( block_head );
                 auto block_tile = static_cast< intptr_t >( block_head + block_size );
                 EXPECT_EQ( 0, block_tile % policy_type::granularity );
                 //
@@ -78,6 +89,15 @@ namespace azul
             using policy_type = Policy;
             static constexpr bool is_pool_allocation_test = true;
             inline static const std::size_t requested_size = ( Size == use_max_piece_size_on_pool ) ? accessor< heap< policy_type > >::pool_block_capacity - sizeof( ptrdiff_t) - sizeof( intptr_t ) : Size;
+            static constexpr std::size_t requested_alignment = Alignment;
+        };
+
+        template < typename Policy, std::size_t Size, std::size_t Alignment >
+        struct test_grow_pool
+        {
+            using policy_type = Policy;
+            static constexpr bool is_grow_pool_test = true;
+            inline static const std::size_t requested_size = Size;
             static constexpr std::size_t requested_alignment = Alignment;
         };
 
@@ -288,6 +308,12 @@ namespace azul
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, use_max_piece_size_on_pool, std::alignment_of_v< ptrdiff_t > >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, use_max_piece_size_on_pool, std::alignment_of_v< ptrdiff_t > +std::alignment_of_v< intptr_t > >,
 
+            // test pool grow
+            test_grow_pool< default_policy, default_policy::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ), 1 >,
+            test_grow_pool< default_policy, default_policy::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1, 1 >,
+            test_grow_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ), 1 >,
+            test_grow_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1, 1 >,
+
             // allocation on garbage
             test_allocate_on_top_of_garbage_1< default_policy >,
             test_allocate_on_top_of_garbage_2< default_policy >,
@@ -389,10 +415,7 @@ namespace azul
 
                     // get pointer to unallocated space in the pool block
                     auto pool_block = accessor_type::pool_begin( heap );
-                    auto block_head = pool_block->unallocated_;
-
-                    // check granularity
-                    EXPECT_EQ( 0, block_head % accessor_type::granularity );
+                    auto unallocated = pool_block->unallocated_;
 
                     // allocate a peice
                     auto p = heap.allocate( requested_size, requested_alignment );
@@ -401,11 +424,10 @@ namespace azul
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
 
                     // get pointer to new unallocated space in the pool block
-                    auto block_tile = pool_block->unallocated_;
-                    EXPECT_GT( block_tile, block_head );
-
-                    // check granularity
-                    EXPECT_EQ( 0, block_tile % accessor_type::granularity );
+                    auto [block_size, block_head] = test_heap< U >::get_piece_internal_fields( p );
+                    auto block_tile = block_head + block_size;
+                    EXPECT_EQ( unallocated, block_head );
+                    EXPECT_EQ( block_tile, pool_block->unallocated_ );
 
                     // deallocate region
                     heap.deallocate( p, requested_size, requested_alignment );
@@ -435,6 +457,64 @@ namespace azul
         TYPED_TEST( test_heap, allocate_deallocate_on_pool )
         {
             allocate_deallocate_on_pool_impl< TypeParam >()( );
+        }
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        template < typename T >
+        struct grow_pool_impl
+        {
+            static void run( ... ) noexcept {}
+
+            template < typename U >
+            static void run(
+                U&&,
+                decltype( U::is_grow_pool_test ) = U::is_grow_pool_test,
+                decltype( U::requested_size ) requested_size = U::requested_size,
+                decltype( U::requested_alignment ) requested_alignment = U::requested_alignment
+            ) noexcept
+            {
+                using heap_type = typename test_heap< U >::heap_type;
+                using accessor_type = typename test_heap< U >::accessor_type;
+
+                try
+                {
+                    heap_type heap;
+                    auto lock_sz = accessor_type::pool_block_size / 2 - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
+                    auto lock_block = heap.allocate( lock_sz, 1 );
+                    ASSERT_TRUE( lock_block );
+
+                    auto pool_head = accessor_type::pool_begin( heap );
+                    auto block_free_space = static_cast< intptr_t >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
+
+                    auto p = heap.allocate( requested_size, requested_alignment );
+                    test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
+                    auto [ block_size, block_head ] = test_heap< U >::get_piece_internal_fields( p );
+
+                    if ( block_size <= block_free_space )
+                    {
+                        EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
+                    }
+                    else
+                    {
+                        EXPECT_EQ( static_cast< intptr_t >( pool_head ), accessor_type::pool_begin( heap )->next_ );
+                    }
+
+                    heap.deallocate( p, requested_size, requested_alignment );
+                    heap.deallocate( lock_block, lock_sz, 1 );
+                }
+                catch ( ... )
+                {
+                    GTEST_FAIL();
+                }
+            }
+
+            void operator()() const noexcept { run( T() ); }
+        };
+
+        TYPED_TEST( test_heap, grow_pool )
+        {
+            grow_pool_impl< TypeParam >()( );
         }
 
         //-----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -506,7 +586,7 @@ namespace azul
             void operator()() const noexcept { run( T() ); }
         };
 
-        TYPED_TEST( test_heap, allocate_on_garbage_impl )
+        TYPED_TEST( test_heap, allocate_on_garbage )
         {
             allocate_on_garbage_impl< TypeParam >()( );
         }

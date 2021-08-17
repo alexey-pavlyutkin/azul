@@ -88,6 +88,7 @@ namespace azul
             pointer_type next_;
         };
 
+        static constexpr size_type piece_internal_fields_size = sizeof( size_type ) + sizeof( pointer_type );
         static constexpr pointer_type hazard_ = 1;
         mutex_type   guard_;
         pointer_type pool_ = 0;
@@ -231,7 +232,7 @@ namespace azul
         void* allocate_large_block( std::size_t bytes, std::size_t alignment )
         {
             // calculate required size
-            size_type sz = ceil( sizeof( size_type ) + sizeof( pointer_type ) + alignment + bytes, system_page_size() );
+            size_type sz = ceil( ceil( piece_internal_fields_size, alignment ) + bytes, system_page_size() );
 
             // allocate memory
             auto block = reinterpret_cast< pointer_type >( virtual_alloc( sz ) );
@@ -241,7 +242,7 @@ namespace azul
             *reinterpret_cast< size_type* >( block ) = sz;
 
             // find aligned region 
-            auto area = ceil( block + sizeof( size_type ) + sizeof( pointer_type ), alignment );
+            auto area = ceil( block + piece_internal_fields_size, alignment );
             assert( area % alignment == 0 );
             assert( area + static_cast< size_type >( bytes )<= block + sz );
 

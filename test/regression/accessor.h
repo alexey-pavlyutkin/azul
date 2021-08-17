@@ -1,5 +1,5 @@
-#ifndef __ACCESSOR__H__
-#define __ACCESSOR__H__
+#ifndef __AZUL__UT__ACCESSOR__H__
+#define __AZUL__UT__ACCESSOR__H__
 
 #include <iterator>
 
@@ -18,6 +18,8 @@ namespace azul
             static constexpr auto granularity = HeapType::granularity_;
             inline static const auto pool_block_size = HeapType::pool_block_size();
             inline static const auto pool_block_capacity = HeapType::pool_block_capacity();
+            static constexpr auto pool_block_header_size = HeapType::ceil( sizeof( pool_block_header_type ), granularity );
+            static constexpr auto piece_internal_fields_size = HeapType::piece_internal_fields_size;
 
         private:
 
