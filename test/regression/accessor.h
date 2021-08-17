@@ -68,17 +68,6 @@ namespace azul
                 for ( auto it = garbage_begin( heap ), end = garbage_end( heap ); it != end; ++it, ++sz );
                 return sz;
             }
-
-            static size_type block_size( void* block ) noexcept
-            {
-                auto head_ptr = ( ( reinterpret_cast< pointer_type >( block ) - sizeof( pointer_type ) ) / std::alignment_of_v< pointer_type > ) * std::alignment_of_v< pointer_type >;
-                return *reinterpret_cast< size_type* >( head_ptr );
-            }
-
-            static std::size_t allocated_on_block( const pool_iterator& block ) noexcept
-            {
-                return static_cast< std::size_t >( reinterpret_cast< pool_block_header_type* >( block.it_ )->unallocated_ - block.it_ );
-            }
         };
     }
 }

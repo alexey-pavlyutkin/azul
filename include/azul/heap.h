@@ -10,6 +10,12 @@
 #include <assert.h>
 #ifdef _WIN32
 #   include <windows.h>
+#   ifdef max
+#       undef max
+#   endif
+#   ifdef min
+#       undef min
+#   endif
 #else
 #   include <unistd.h>
 #   include <sys/mman.h>
@@ -397,10 +403,11 @@ namespace azul
         void* do_allocate( std::size_t bytes, std::size_t alignment ) override
         {
             if ( !bytes ) throw std::invalid_argument( "azul::heap::do_allocate(): invalid requested size" );
-            if ( !alignment && static_cast< size_type >( alignment ) > system_page_size() ) throw std::invalid_argument( "azul::heap::do_allocate(): invalid requested alignment" );
+            if ( !alignment || static_cast< size_type >( alignment ) > system_page_size() ) throw std::invalid_argument( "azul::heap::do_allocate(): invalid requested alignment" );
 
             // calculate size of pool block that could fit requested region
             auto required_pool_block_size = ceil( ceil( ceil( sizeof( size_type ) + sizeof( pointer_type ), granularity_ ) + sizeof( size_type ) + sizeof( pointer_type ), alignment ) + bytes, granularity_ );
+            if ( required_pool_block_size < 0 ) throw std::bad_alloc();
 
             // if block too large to be allocated on pool
             if ( required_pool_block_size > pool_block_size() )
