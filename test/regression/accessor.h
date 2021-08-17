@@ -65,7 +65,7 @@ namespace azul
             static std::size_t garbage_size( const HeapType& heap ) noexcept
             {
                 std::size_t sz = 0;
-                for ( auto it = garbage_begin(), end = garbage_end(); it != end; ++it, ++sz );
+                for ( auto it = garbage_begin( heap ), end = garbage_end( heap ); it != end; ++it, ++sz );
                 return sz;
             }
 

@@ -1,6 +1,8 @@
 #include <gtest/gtest.h>
 #include "accessor.h"
 #include <azul/heap.h>
+#include <stack>
+#include <tuple>
 
 
 namespace azul
@@ -13,10 +15,26 @@ namespace azul
             using policy_type = typename TestType::policy_type;
             using heap_type = heap< policy_type >;
             using accessor_type = accessor< heap_type >;
-            //using pointer_type = typename accessor_type::pointer_type;
-            //using size_type = typename accessor_type::size_type;
-            //using pool_block_header_type = typename accessor_type::pool_block_header_type;
-            //using garbage_block_header_type = typename accessor_type::garbage_block_header_type;
+
+            static void check_memory_piece( void* p, std::size_t size, std::size_t alignment )
+            {
+                EXPECT_TRUE( p );
+                //
+                EXPECT_EQ( 0, reinterpret_cast< intptr_t >( p ) % alignment );
+                //
+                static constexpr auto block_head_ptr_alignment = std::alignment_of_v< intptr_t >;
+                auto block_head = *reinterpret_cast< intptr_t* >( ( ( reinterpret_cast< intptr_t >( p ) - sizeof( intptr_t ) ) / block_head_ptr_alignment ) * block_head_ptr_alignment );
+                EXPECT_EQ( 0, block_head % policy_type::granularity );
+                //
+                auto block_size = *reinterpret_cast< ptrdiff_t* >( block_head );
+                auto block_tile = static_cast< intptr_t >( block_head + block_size );
+                EXPECT_EQ( 0, block_tile % policy_type::granularity );
+                //
+                EXPECT_GE( reinterpret_cast< intptr_t >( p ), block_head + static_cast< ptrdiff_t >( sizeof( ptrdiff_t ) + sizeof( intptr_t ) ) );
+                EXPECT_LE( static_cast< intptr_t >( reinterpret_cast< intptr_t >( p ) + size ), block_tile );
+                //
+                std::memset( p, 0xCC, size );
+            }
         };
 
         //-----------------------------------------------------------------------------------------------------------------------------------------------------
@@ -33,6 +51,12 @@ namespace azul
             static constexpr std::size_t granularity = Granularity;
         };
 
+        template < typename PolicyType, std::size_t GarbageSearchDepth >
+        struct set_garbage_search_depth : public PolicyType
+        {
+            static constexpr std::size_t garbage_search_depth = GarbageSearchDepth;
+        };
+
         template < typename Policy, std::size_t Size, std::size_t Alignment, bool Positive, typename ExceptionType = std::exception >
         struct test_allocate_deallocate_on_pool
         {
@@ -43,24 +67,148 @@ namespace azul
             using exception_type = ExceptionType;
         };
 
-        template < typename Policy, std::size_t BlockSize, std::size_t Size, std::size_t Alignment, bool Positive >
-        struct test_allocate_on_garbage
+        template < typename Policy >
+        struct test_allocate_on_top_of_garbage
         {
             using policy_type = Policy;
-            static constexpr std::size_t block_size = BlockSize;
-            static constexpr std::size_t size = Size;
-            static constexpr std::size_t alignment = Alignment;
-            static constexpr bool allocation_on_garbage_expected = Positive;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
+            static constexpr std::size_t requested_size = 1;
+            static constexpr std::size_t requested_alignment = 1;
+            inline static const std::list< std::size_t > expected_garbage_state;
         };
 
-        template < typename Policy, std::size_t BlockSize, std::size_t Size, std::size_t Alignment, bool Positive >
-        struct test_allocate_on_garbage_with_splitting
+        template < typename Policy >
+        struct test_allocate_on_top_of_garbage_1
         {
             using policy_type = Policy;
-            static constexpr std::size_t block_size = BlockSize;
-            static constexpr std::size_t size = Size;
-            static constexpr std::size_t alignment = Alignment;
-            static constexpr bool splitting_expected = Positive;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
+            static constexpr std::size_t requested_size = 1;
+            static constexpr std::size_t requested_alignment = 1;
+            inline static const std::list< std::size_t > expected_garbage_state;
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_top_of_garbage_2
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t );
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state;
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_top_of_garbage_3
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
+            static constexpr std::size_t requested_size = policy_type::granularity / 2;
+            static constexpr std::size_t requested_alignment = policy_type::granularity / 2;
+            inline static const std::list< std::size_t > expected_garbage_state;
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_top_of_garbage_4
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = { policy_type::granularity };
+        };
+
+        template < typename Policy >
+        struct test_allocate_in_middle_of_garbage
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, 2 * policy_type::granularity, policy_type::granularity };
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = { policy_type::granularity, policy_type::granularity };
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_bottom_of_garbage
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, policy_type::granularity, 2 * policy_type::granularity };
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = { policy_type::granularity, policy_type::granularity };
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_top_of_garbage_with_splitting_1
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { 3 * policy_type::granularity, policy_type::granularity, policy_type::granularity };
+            static constexpr std::size_t requested_size = 1;
+            static constexpr std::size_t requested_alignment = 1;
+            inline static const std::list< std::size_t > expected_garbage_state = { 2 * policy_type::granularity, policy_type::granularity, policy_type::granularity };
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_top_of_garbage_with_splitting_2
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { 3 * policy_type::granularity, policy_type::granularity, policy_type::granularity };
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = { policy_type::granularity, policy_type::granularity, policy_type::granularity };
+        };
+
+        template < typename Policy >
+        struct test_allocate_in_middle_of_garbage_with_splitting
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, 3 * policy_type::granularity, policy_type::granularity };
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = { policy_type::granularity, policy_type::granularity, policy_type::granularity };
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_bottom_of_garbage_with_splitting
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, policy_type::granularity, 3 * policy_type::granularity, };
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = { policy_type::granularity, policy_type::granularity, policy_type::granularity };
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_garbage_search_depth_in
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = []() {
+                std::list< std::size_t > result( policy_type::garbage_search_depth - 1, policy_type::granularity );
+                result.emplace_back( 2 * policy_type::granularity );
+                return std::move( result );
+            }( );
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = []() {
+                std::list< std::size_t > result( policy_type::garbage_search_depth - 1, policy_type::granularity );
+                return std::move( result );
+            }( );
+        };
+
+        template < typename Policy >
+        struct test_allocate_on_garbage_search_depth_break
+        {
+            using policy_type = Policy;
+            inline static const std::list< std::size_t > initial_garbage_state = []() {
+                std::list< std::size_t > result( policy_type::garbage_search_depth, policy_type::granularity );
+                result.emplace_back( 2 * policy_type::granularity );
+                return std::move( result );
+            }( );
+            static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
+            static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
+            inline static const std::list< std::size_t > expected_garbage_state = []() {
+                std::list< std::size_t > result( policy_type::garbage_search_depth, policy_type::granularity );
+                return std::move( result );
+            }( );
         };
 
         using test_types = ::testing::Types <
@@ -123,17 +271,33 @@ namespace azul
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size - set_pool_block_size< default_policy, 1 << 20 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), std::alignment_of_v< ptrdiff_t >, true >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size - set_pool_block_size< default_policy, 1 << 20 >::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), 2 * std::alignment_of_v< ptrdiff_t >, true >,
 
-            // allocation on garbage without splitting
-            test_allocate_on_garbage< default_policy, default_policy::granularity, 1, 1, true >,
-            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ), true >,
-            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ) + sizeof( ptrdiff_t ), true >,
-            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ) + 1, sizeof( intptr_t ), false >,
-#ifndef _DEBUG
-            test_allocate_on_garbage< default_policy, default_policy::granularity, default_policy::granularity - sizeof( intptr_t ) - sizeof( ptrdiff_t ), sizeof( intptr_t ) + sizeof( ptrdiff_t ) + 1, false >,
-#endif
-
-            // allocation on garbage with splitting
-            test_allocate_on_garbage_with_splitting< default_policy, 2 * default_policy::granularity, 1, 1, true >
+            // allocation on garbage
+            test_allocate_on_top_of_garbage_1< default_policy >,
+            test_allocate_on_top_of_garbage_2< default_policy >,
+            test_allocate_on_top_of_garbage_3< default_policy >,
+            test_allocate_on_top_of_garbage_4< default_policy >,
+            test_allocate_in_middle_of_garbage< default_policy >,
+            test_allocate_on_bottom_of_garbage< default_policy >,
+            test_allocate_on_top_of_garbage_with_splitting_1< default_policy >,
+            test_allocate_on_top_of_garbage_with_splitting_2< default_policy >,
+            test_allocate_in_middle_of_garbage_with_splitting< default_policy >,
+            test_allocate_on_bottom_of_garbage_with_splitting< default_policy >,
+            // other granularity
+            test_allocate_on_top_of_garbage_1< set_granularity< default_policy, 0x100 > >,
+            test_allocate_on_top_of_garbage_2< set_granularity< default_policy, 0x100 > >,
+            test_allocate_on_top_of_garbage_3< set_granularity< default_policy, 0x100 > >,
+            test_allocate_on_top_of_garbage_4< set_granularity< default_policy, 0x100 > >,
+            test_allocate_in_middle_of_garbage< set_granularity< default_policy, 0x100 > >,
+            test_allocate_on_bottom_of_garbage< set_granularity< default_policy, 0x100 > >,
+            test_allocate_on_top_of_garbage_with_splitting_1< set_granularity< default_policy, 0x100 > >,
+            test_allocate_on_top_of_garbage_with_splitting_2< set_granularity< default_policy, 0x100 > >,
+            test_allocate_in_middle_of_garbage_with_splitting< set_granularity< default_policy, 0x100 > >,
+            test_allocate_on_bottom_of_garbage_with_splitting< set_granularity< default_policy, 0x100 > >,
+            // check garbage search depth
+            test_allocate_on_garbage_search_depth_in< set_garbage_search_depth< default_policy, 4 > >,
+            test_allocate_on_garbage_search_depth_break< set_garbage_search_depth< default_policy, 4 > >,
+            test_allocate_on_garbage_search_depth_in< default_policy >,
+            test_allocate_on_garbage_search_depth_break< default_policy >
         >;
 
         TYPED_TEST_SUITE( test_heap, test_types, );
@@ -154,87 +318,63 @@ namespace azul
                 decltype( U::exception_type ) * e = nullptr
             ) noexcept
             {
-                //EXPECT_NO_THROW( {
-                    try
-                    {
-                        using heap_type = typename test_heap< U >::heap_type;
-                        using accessor_type = typename test_heap< U >::accessor_type;
+                using heap_type = typename test_heap< U >::heap_type;
+                using accessor_type = typename test_heap< U >::accessor_type;
 
-                        heap_type heap;
+                try
+                {
+                    heap_type heap;
 
-                        // check that there is at least one pool block
-                        auto pool_block_begin = accessor_type::pool_begin( heap );
-                        EXPECT_NE( accessor_type::pool_end( heap ), pool_block_begin );
+                    // check that there is at least one pool block
+                    auto pool_block_begin = accessor_type::pool_begin( heap );
+                    EXPECT_NE( accessor_type::pool_end( heap ), pool_block_begin );
 
-                        // get pointer to unallocated space in the pool block
-                        auto pool_block = accessor_type::pool_begin( heap );
-                        auto block_head = pool_block->unallocated_;
+                    // get pointer to unallocated space in the pool block
+                    auto pool_block = accessor_type::pool_begin( heap );
+                    auto block_head = pool_block->unallocated_;
 
-                        // check granularity
-                        EXPECT_EQ( 0, block_head % accessor_type::granularity );
+                    // check granularity
+                    EXPECT_EQ( 0, block_head % accessor_type::granularity );
 
-                        // allocate a peice
-                        auto p = heap.allocate( size, alignment );
+                    // allocate a peice
+                    auto p = heap.allocate( size, alignment );
 
-                        // the point shall be unreachable for negative tests
-                        if ( !positive) GTEST_FAIL();
+                    // the point shall be unreachable for negative tests
+                    if ( !positive) GTEST_FAIL();
 
-                        // check pointer is not NULL
-                        EXPECT_TRUE( p );
+                    // check allocated piece
+                    test_heap< U >::check_memory_piece( p, size, alignment );
 
-                        // check alignment
-                        EXPECT_EQ( 0, reinterpret_cast< intptr_t >( p ) % alignment );
+                    // get pointer to new unallocated space in the pool block
+                    auto block_tile = pool_block->unallocated_;
+                    EXPECT_GT( block_tile, block_head );
 
-                        // check that the pool didn't grow
-                        EXPECT_EQ( pool_block, accessor_type::pool_begin( heap ) );
+                    // check granularity
+                    EXPECT_EQ( 0, block_tile % accessor_type::granularity );
 
-                        // get pointer to new unallocated space in the pool block
-                        auto block_tile = pool_block->unallocated_;
-                        EXPECT_GT( block_tile, block_head );
+                    // deallocate region
+                    heap.deallocate( p, size, alignment );
 
-                        // check granularity
-                        EXPECT_EQ( 0, block_tile % accessor_type::granularity );
+                    // check that garbage is not empty
+                    auto garbage_head = accessor_type::garbage_begin( heap );
+                    EXPECT_NE( garbage_head, accessor_type::garbage_end( heap ) );
 
-                        // check that requested region entirely lays in pool block
-                        EXPECT_GE( reinterpret_cast< intptr_t >( p ), block_head + static_cast< ptrdiff_t >( sizeof( ptrdiff_t ) + sizeof( intptr_t ) ) );
-                        EXPECT_LE( reinterpret_cast< intptr_t >( p ) + static_cast< ptrdiff_t >( size ), block_tile );
+                    // check that garbage points exactly to just deallocated block
+                    EXPECT_EQ( static_cast< intptr_t >( garbage_head ), block_head );
 
-                        // check that the region lays in bound virtual space
-                        std::memset( p, 0xCC, size );
-
-                        // check block head field points to beginning of the block
-                        auto head_ptr_alignment = std::alignment_of_v< intptr_t >;
-                        auto block_head_ptr = reinterpret_cast< intptr_t* >( ( ( reinterpret_cast< intptr_t > ( p ) - sizeof( intptr_t ) ) / head_ptr_alignment ) * head_ptr_alignment );
-                        EXPECT_EQ( block_head, *block_head_ptr );
-
-                        // check block size field contaions valid value
-                        auto block_size = block_tile - block_head;
-                        EXPECT_EQ( block_size, *reinterpret_cast< ptrdiff_t* >( block_head ) );
-
-                        // deallocate region
-                        heap.deallocate( p, size, alignment );
-
-                        // check that garbage is not empty
-                        auto garbage_head = accessor_type::garbage_begin( heap );
-                        EXPECT_NE( garbage_head, accessor_type::garbage_end( heap ) );
-
-                        // check that garbage points exactly to just deallocated block
-                        EXPECT_EQ( static_cast< intptr_t >( garbage_head ), block_head );
-
-                        // check size field
-                        EXPECT_EQ( block_size, garbage_head->size_ );
+                    // check size field
+                    EXPECT_EQ( block_size, garbage_head->size_ );
                             
-                        // check next field
-                        EXPECT_FALSE( garbage_head->next_ );
-                    }
-                    catch ( const U::exception_type& )
-                    {
-                    }
-                    catch ( ... )
-                    {
-                        FAIL();
-                    }
-                //} );
+                    // check next field
+                    EXPECT_FALSE( garbage_head->next_ );
+                }
+                catch ( const U::exception_type& )
+                {
+                }
+                catch ( ... )
+                {
+                    FAIL();
+                }
             }
 
             void operator()() const noexcept { run( T() ); }
@@ -255,83 +395,52 @@ namespace azul
             template < typename U >
             static void run(
                 U&&,
-                decltype( U::block_size ) block_size = U::block_size,
-                decltype( U::size ) size = U::size,
-                decltype( U::alignment ) alignment = U::alignment,
-                decltype( U::allocation_on_garbage_expected ) allocation_on_garbage_expected = U::allocation_on_garbage_expected ) noexcept
+                decltype( U::initial_garbage_state ) const & initial_garbage_state = U::initial_garbage_state,
+                decltype( U::requested_size ) requested_size = U::requested_size,
+                decltype( U::requested_alignment ) requested_alignment = U::requested_alignment,
+                decltype( U::expected_garbage_state ) expected_garbage_state = U::expected_garbage_state
+            ) noexcept
             {
-                //EXPECT_NO_THROW( {
-                try
+                using heap_type = typename test_heap< U >::heap_type;
+                using accessor_type = typename test_heap< U >::accessor_type;
+
+                heap_type heap;
+
+                // prepare initial garbage state
+                std::stack< std::tuple< void*, std::size_t, std::size_t, std::size_t > > pieces;
+                for ( auto block_size : initial_garbage_state )
                 {
-                    using heap_type = typename test_heap< U >::heap_type;
-                    using accessor_type = typename test_heap< U >::accessor_type;
-
-                    heap_type heap;
-                    {
-                        // allocate block an pool and deallocate it
-                        auto p = heap.allocate( block_size - sizeof( ptrdiff_t ) - sizeof( intptr_t ), 1 );
-                        ASSERT_TRUE( p );
-                        heap.deallocate( p, size, 1 );
-
-                        // make sure there is right block on garbage
-                        ASSERT_NE( accessor_type::garbage_begin( heap ), accessor_type::garbage_end( heap ) );
-                        ASSERT_EQ( static_cast< ptrdiff_t >( block_size ), accessor_type::garbage_begin( heap )->size_ );
-                        ASSERT_FALSE( accessor_type::garbage_begin( heap )->next_ );
-                    }
-
-                    // remember pool state
-                    auto pool_head = accessor_type::pool_begin( heap );
-                    auto pool_unallocated = pool_head->unallocated_;
-
-
-                    auto garbage_head = accessor_type::garbage_begin( heap );
-                    auto garbage_block_head = static_cast< intptr_t >( garbage_head );
-                    auto garbage_block_tile = garbage_block_head + garbage_head->size_;
-
-                    // allocate region again
-                    auto p = heap.allocate( size, alignment );
-                    
-                    if ( allocation_on_garbage_expected )
-                    {
-                        // check that pool stays untouched
-                        EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
-                        EXPECT_EQ( pool_unallocated, pool_head->unallocated_ );
-
-                        // check garbage is empty
-                        EXPECT_EQ( accessor_type::garbage_begin( heap ), accessor_type::garbage_end( heap ) );
-
-                        // check pointer to allocated region is not NULL
-                        EXPECT_TRUE( p );
-
-                        // check alignment
-                        EXPECT_EQ( 0, reinterpret_cast< intptr_t >( p ) % alignment );
-
-                        // check that requested region entirely lays in pool block
-                        EXPECT_GE( garbage_block_head + static_cast< ptrdiff_t >( sizeof( intptr_t ) + sizeof( ptrdiff_t ) ), reinterpret_cast< intptr_t >( p ) );
-                        EXPECT_LE( reinterpret_cast< intptr_t >( p ) + static_cast< ptrdiff_t >( size ), garbage_block_tile );
-
-                        // check block head field points to beginning of the block
-                        auto head_ptr_alignment = std::alignment_of_v< intptr_t >;
-                        auto block_head_ptr = reinterpret_cast< intptr_t* >( ( ( reinterpret_cast< intptr_t > ( p ) - sizeof( intptr_t ) ) / head_ptr_alignment ) * head_ptr_alignment );
-                        EXPECT_EQ( garbage_block_head, *block_head_ptr );
-
-                        // check block size field contaions valid value
-                        EXPECT_EQ( garbage_block_tile - garbage_block_head, *reinterpret_cast< ptrdiff_t* >( garbage_block_head ) );
-                    }
-                    else
-                    {
-                        // check garbage is untouched
-                        EXPECT_EQ( garbage_head, accessor_type::garbage_begin( heap ) );
-                    }
-
-                    // release the block
-                    if ( p ) heap.deallocate( p, size, alignment );
+                    ASSERT_EQ( 0, block_size % test_heap< U >::policy_type::granularity );
+                    auto piece_size = block_size - sizeof( intptr_t ) - sizeof( ptrdiff_t );
+                    auto p = heap.allocate( piece_size, 1 );
+                    ASSERT_TRUE( p );
+                    pieces.emplace( p, piece_size, 1, block_size );
                 }
-                catch ( ... )
+                while ( !pieces.empty() )
                 {
-                    FAIL();
+                    auto [p, piece_size, alignment, block_size] = pieces.top();
+                    heap.deallocate( p, piece_size, 1 );
+                    ASSERT_EQ( static_cast< ptrdiff_t >( block_size ), accessor_type::garbage_begin( heap )->size_ );
+                    pieces.pop();
                 }
-                //} );
+                ASSERT_EQ( initial_garbage_state.size(), accessor_type::garbage_size( heap ) );
+
+                // allocate requested memory piece
+                auto p = heap.allocate( requested_size, requested_alignment );
+
+                // test memory piece
+                test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
+
+                // check garbage state against expected
+                EXPECT_EQ( expected_garbage_state.size(), accessor_type::garbage_size( heap ) );
+                auto it = std::begin( expected_garbage_state );
+                auto garbage_it = accessor_type::garbage_begin( heap );
+                for ( ; it != std::end( expected_garbage_state ); ++it, ++garbage_it )
+                {
+                    EXPECT_EQ( static_cast< ptrdiff_t >( *it ), garbage_it->size_ );
+                }
+
+                heap.deallocate( p, requested_size, requested_alignment );
             }
 
             void operator()() const noexcept { run( T() ); }

@@ -344,7 +344,7 @@ namespace azul
                     if ( tile > garbage_block_tile )
                     {
                         // break garbage search if maximum depth reached
-                        if ( ++garbage_search_depth >= Policy::garbage_search_depth ) break;
+                        if ( garbage_search_depth++ >= Policy::garbage_search_depth ) break;
 
                         // proceed to the next garbage block
                         garbage_block_ref = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
