@@ -103,6 +103,13 @@ namespace azul
         };
 
         template < typename Policy >
+        struct test_trace_pool
+        {
+            using policy_type = Policy;
+            static constexpr bool is_trace_pool_test = true;
+        };
+
+        template < typename Policy >
         struct test_allocate_on_top_of_garbage
         {
             using policy_type = Policy;
@@ -325,7 +332,8 @@ namespace azul
             test_grow_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ), 1 >,
             test_grow_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1, 1 >,
 
-            // test pool searching
+            // test pool journey
+            test_trace_pool< default_policy >,
 
             // allocation on garbage
             test_allocate_on_top_of_garbage_1< default_policy >,
@@ -542,6 +550,77 @@ namespace azul
         TYPED_TEST( test_heap, grow_pool )
         {
             grow_pool_impl< TypeParam >()( );
+        }
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        template < typename T >
+        struct pool_trace_impl
+        {
+            static void run( ... ) noexcept {}
+
+            template < typename U >
+            static void run(
+                U&&,
+                decltype( U::is_trace_pool_test ) = U::is_trace_pool_test
+            ) noexcept
+            {
+                using heap_type = typename test_heap< U >::heap_type;
+                using accessor_type = typename test_heap< U >::accessor_type;
+
+                try
+                {
+                    heap_type heap;
+
+                    std::size_t half_block_sz = accessor_type::pool_block_size / 2 - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
+                    std::size_t full_block_sz = accessor_type::pool_block_size - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
+
+                    // prepare initial pool state
+                    std::list< std::tuple< std::size_t, std::size_t, void* > > pieces;
+                    for ( auto sz : { full_block_sz, half_block_sz, full_block_sz } )
+                    {
+                        void* piece = heap.allocate( sz, 1 );
+                        ASSERT_TRUE( piece );
+                        pieces.emplace_back( sz, 1, piece );
+                    }
+                    auto pool_size = accessor_type::pool_size( heap );
+                    ASSERT_EQ( 3, pool_size );
+
+                    auto capable_pool_block = ++accessor_type::pool_begin( heap );
+                    auto unallocated = capable_pool_block->unallocated_;
+
+                    // allocate a piece that can fit into 2nd pool block
+                    std::size_t sz = accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size;
+                    auto p = heap.allocate( accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size, 1 );
+                    EXPECT_TRUE( p );
+                    pieces.emplace_back( sz, 1, p );
+
+                    // check allocated piece
+                    test_heap< U >::check_memory_piece( p, sz, 1 );
+
+                    // make sure exactly 2nd pool block fits the piece
+                    EXPECT_EQ( pool_size, accessor_type::pool_size( heap ) );
+                    auto [block_head, block_size] = test_heap< U >::get_piece_internal_fields( p );
+                    EXPECT_LE( unallocated, block_head );
+                    EXPECT_LE( block_head + block_size, capable_pool_block->unallocated_ );
+
+                    for ( auto [size, alignment, piece] : pieces )
+                    {
+                        heap.deallocate( piece, size, alignment );
+                    }
+                }
+                catch ( ... )
+                {
+                    GTEST_FAIL();
+                }
+            }
+
+            void operator()() const noexcept { run( T() ); }
+        };
+
+        TYPED_TEST( test_heap, pool_trace )
+        {
+            pool_trace_impl< TypeParam >()( );
         }
 
         //-----------------------------------------------------------------------------------------------------------------------------------------------------

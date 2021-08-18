@@ -3,5 +3,5 @@ if ( AZUL_BUILD_REGRESSION )
 endif()
 
 if ( AZUL_BUILD_STRESS )
-#    add_subdirectory( regression )
+#    add_subdirectory( stress )
 endif()

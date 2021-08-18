@@ -193,6 +193,7 @@ namespace azul
             return block;
         }
 
+
         /** Releases allocated block of virtual memory
 
         @param
@@ -206,20 +207,6 @@ namespace azul
             ::munmap( p, size );
 #endif
         }
-
-        //template < typename ActionType >
-        //static void wait_till_pointer_hazarded( const ActionType& action ) noexcept
-        //{
-        //    static_assert( Policy::spin_limit, "Policy::spin_limit supposed to be positive integer" );
-        //    while ( true )
-        //    {
-        //        for ( std::size_t spin = 0; spin < Policy::spin_limit; ++spin )
-        //        {
-        //            if ( action() & hazard == 0 ) return;
-        //        }
-        //        std::this_thread::yield();
-        //    }
-        //}
 
 
         /** Provides reference to block head pointer for given allocated piece
