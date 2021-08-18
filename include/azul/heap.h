@@ -170,7 +170,7 @@ namespace azul
         */
         static size_type pool_block_capacity() noexcept
         {
-            static size_type value = pool_block_size() - ceil( sizeof( size_type ) + sizeof( pointer_type ), granularity_ );
+            static size_type value = pool_block_size() - ceil( sizeof( pool_block_header ), granularity_ );
             return value;
         };
 
@@ -220,6 +220,13 @@ namespace azul
         //        std::this_thread::yield();
         //    }
         //}
+
+        pointer_type& get_piece_header_ptr_field( pointer_type piece ) noexcept
+        {
+            assert( p );
+            auto block_head_ptr = floor( p - sizeof( pointer_type ), std::alignment_of_v< pointer_type > );
+            return *reinterpret_cast< pointer_type* >( block_head_ptr );
+        }
 
 
         /** Allocates large memory block directly in process's virtual space not in the heap
@@ -441,15 +448,20 @@ namespace azul
         {
             if ( p )
             {
-                lock_type lock( guard_ );
+                auto [block_head, block_size] = get_piece_fields( p );
+                if ( block_size > pool_block_capacity() )
+                {
+                    virtual_free( reinterpret_cast< void* >( block_head ), block_size );
+                }
+                else
+                {
+                    lock_type lock( guard_ );
 
-                // get block head
-                auto block = *reinterpret_cast< pointer_type* >( floor( reinterpret_cast< pointer_type >( p ) - sizeof( pointer_type ), std::alignment_of_v< pointer_type > ) );
-                assert( block % granularity_ == 0 );
-
-                // prepend block to garbage ( no reason to touch <block size> field )
-                reinterpret_cast< garbage_block_header* >( block )->next_ = garbage_;
-                garbage_ = block;
+                    // prepend block to garbage ( no reason to touch <block size> field )
+                    auto new_garbage_head = block_head;
+                    reinterpret_cast< garbage_block_header* >( block_head )->next_ = garbage_;
+                    garbage_ = new_garbage_head;
+                }
             }
         }
 

@@ -246,6 +246,16 @@ namespace azul
             }( );
         };
 
+        template < typename Policy >
+        struct test_allocate_deallocate_large_block
+        {
+            using policy_type = Policy;
+            using accessor_type = accessor< heap < policy_type > >;
+            static constexpr bool is_large_block_test = true;
+            inline static const std::size_t requested_size = accessor_type::pool_block_size - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size + 1;
+            static constexpr std::size_t requested_alignment = 1;
+        };
+
         using test_types = ::testing::Types <
 
             // test on invalid arguments
@@ -314,6 +324,8 @@ namespace azul
             test_grow_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ), 1 >,
             test_grow_pool< set_pool_block_size< default_policy, 1 << 20 >, set_pool_block_size< default_policy, 1 << 20 >::block_size / 2 - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1, 1 >,
 
+            // test pool searching
+
             // allocation on garbage
             test_allocate_on_top_of_garbage_1< default_policy >,
             test_allocate_on_top_of_garbage_2< default_policy >,
@@ -342,7 +354,10 @@ namespace azul
             test_allocate_on_garbage_search_depth_in< set_garbage_search_depth< default_policy, 4 > >,
             test_allocate_on_garbage_search_depth_break< set_garbage_search_depth< default_policy, 4 > >,
             test_allocate_on_garbage_search_depth_in< default_policy >,
-            test_allocate_on_garbage_search_depth_break< default_policy >
+            test_allocate_on_garbage_search_depth_break< default_policy >,
+
+            //
+            test_allocate_deallocate_large_block< default_policy >
         >;
 
         TYPED_TEST_SUITE( test_heap, test_types, );
@@ -600,6 +615,56 @@ namespace azul
         TYPED_TEST( test_heap, allocate_on_garbage )
         {
             allocate_on_garbage_impl< TypeParam >()( );
+        }
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        template < typename T >
+        struct allocate_deallocate_large_block_impl
+        {
+            static void run( ... ) noexcept {}
+
+            template < typename U >
+            static void run(
+                U&&,
+                decltype( U::is_large_block_test ) = U::is_large_block_test,
+                decltype( U::requested_size ) requested_size = U::requested_size,
+                decltype( U::requested_alignment ) requested_alignment = U::requested_alignment
+            ) noexcept
+            {
+                using heap_type = typename test_heap< U >::heap_type;
+                using accessor_type = typename test_heap< U >::accessor_type;
+
+                try
+                {
+                    heap_type heap;
+
+                    auto pool_head = accessor_type::pool_begin( heap );
+                    auto unallocated = pool_head->unallocated_;
+
+                    // allocate requested memory piece
+                    auto p = heap.allocate( requested_size, requested_alignment );
+
+                    // test memory piece
+                    test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
+
+                    EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
+                    EXPECT_EQ( unallocated, pool_head->unallocated_ );
+
+                    heap.deallocate( p, requested_size, requested_alignment );
+                }
+                catch ( ... )
+                {
+                    GTEST_FAIL();
+                }
+            }
+
+            void operator()() const noexcept { run( T() ); }
+        };
+
+        TYPED_TEST( test_heap, allocate_deallocate_large_block )
+        {
+            allocate_deallocate_large_block_impl< TypeParam >()( );
         }
 
         //-----------------------------------------------------------------------------------------------------------------------------------------------------
