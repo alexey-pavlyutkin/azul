@@ -18,34 +18,35 @@ namespace azul
             using policy_type = typename TestType::policy_type;
             using heap_type = heap< policy_type >;
             using accessor_type = accessor< heap_type >;
+            using pointer_type = typename accessor_type::pointer_type;
+            using size_type = typename accessor_type::size_type;
 
-            static ptrdiff_t calculate_block_size( std::size_t piece_size, std::size_t piece_alignment ) noexcept
+            static size_type calculate_block_size( std::size_t piece_size, std::size_t piece_alignment ) noexcept
             {
                 return ( ( accessor_type::piece_internal_fields_size / piece_alignment ) * piece_alignment + piece_size / accessor_type::granularity ) * accessor_type::granularity;
             }
 
-            static std::tuple< ptrdiff_t, intptr_t > get_piece_internal_fields( void* piece ) noexcept
+            static std::tuple< pointer_type, size_type > get_piece_internal_fields( void* piece ) noexcept
             {
-                static constexpr auto block_head_ptr_alignment = std::alignment_of_v< intptr_t >;
-                auto block_head_ptr = *reinterpret_cast< intptr_t* >( ( ( reinterpret_cast< intptr_t >( piece ) - sizeof( intptr_t ) ) / block_head_ptr_alignment ) * block_head_ptr_alignment );
-                auto block_size = *reinterpret_cast< ptrdiff_t* >( block_head_ptr );
-                return { block_size, block_head_ptr };
+                auto block_head = accessor_type::get_block_header_ptr_ref( reinterpret_cast< pointer_type >( piece ) );
+                auto block_size = *reinterpret_cast< size_type* >( block_head );
+                return { block_head, block_size };
             }
 
             static void check_memory_piece( void* p, std::size_t size, std::size_t alignment )
             {
                 EXPECT_TRUE( p );
                 //
-                EXPECT_EQ( 0, reinterpret_cast< intptr_t >( p ) % alignment );
+                EXPECT_EQ( 0, reinterpret_cast< pointer_type >( p ) % alignment );
                 //
-                auto [block_size, block_head] = get_piece_internal_fields( p );
+                auto [block_head, block_size] = get_piece_internal_fields( p );
                 EXPECT_EQ( 0, block_head % policy_type::granularity );
                 //
-                auto block_tile = static_cast< intptr_t >( block_head + block_size );
+                auto block_tile = static_cast< pointer_type >( block_head + block_size );
                 EXPECT_EQ( 0, block_tile % policy_type::granularity );
                 //
-                EXPECT_GE( reinterpret_cast< intptr_t >( p ), block_head + static_cast< ptrdiff_t >( sizeof( ptrdiff_t ) + sizeof( intptr_t ) ) );
-                EXPECT_LE( static_cast< intptr_t >( reinterpret_cast< intptr_t >( p ) + size ), block_tile );
+                EXPECT_GE( reinterpret_cast< pointer_type >( p ), block_head + static_cast< size_type >( sizeof( size_type ) + sizeof( pointer_type ) ) );
+                EXPECT_LE( static_cast< pointer_type >( reinterpret_cast< pointer_type >( p ) + size ), block_tile );
                 //
                 std::memset( p, 0xCC, size );
             }
@@ -439,7 +440,7 @@ namespace azul
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
 
                     // get pointer to new unallocated space in the pool block
-                    auto [block_size, block_head] = test_heap< U >::get_piece_internal_fields( p );
+                    auto [ block_head, block_size ] = test_heap< U >::get_piece_internal_fields( p );
                     auto block_tile = block_head + block_size;
                     EXPECT_EQ( unallocated, block_head );
                     EXPECT_EQ( block_tile, pool_block->unallocated_ );
@@ -452,7 +453,7 @@ namespace azul
                     EXPECT_NE( garbage_head, accessor_type::garbage_end( heap ) );
 
                     // check that garbage points exactly to just deallocated block
-                    EXPECT_EQ( static_cast< intptr_t >( garbage_head ), block_head );
+                    EXPECT_EQ( static_cast< accessor_type::pointer_type >( garbage_head ), block_head );
 
                     // check size field
                     EXPECT_EQ( block_tile - block_head, garbage_head->size_ );
@@ -503,7 +504,7 @@ namespace azul
 
                     // get free space in the 1st pool block
                     auto pool_head = accessor_type::pool_begin( heap );
-                    auto block_free_space = static_cast< intptr_t >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
+                    auto block_free_space = static_cast< accessor_type::pointer_type >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
 
                     // allocate requested size
                     auto p = heap.allocate( requested_size, requested_alignment );
@@ -512,7 +513,7 @@ namespace azul
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
 
                     // get memory block for the piece
-                    auto [ block_size, block_head ] = test_heap< U >::get_piece_internal_fields( p );
+                    auto [ block_head, block_size] = test_heap< U >::get_piece_internal_fields( p );
 
                     // if the 1st pool block could fit the piece
                     if ( block_size <= block_free_space )
@@ -523,7 +524,7 @@ namespace azul
                     else
                     {
                         // else make sure the pool has grown
-                        EXPECT_EQ( static_cast< intptr_t >( pool_head ), accessor_type::pool_begin( heap )->next_ );
+                        EXPECT_EQ( static_cast< accessor_type::pointer_type >( pool_head ), accessor_type::pool_begin( heap )->next_ );
                     }
 
                     heap.deallocate( p, requested_size, requested_alignment );
@@ -572,7 +573,7 @@ namespace azul
                     for ( auto block_size : initial_garbage_state )
                     {
                         ASSERT_EQ( 0, block_size % test_heap< U >::policy_type::granularity );
-                        auto piece_size = block_size - sizeof( intptr_t ) - sizeof( ptrdiff_t );
+                        auto piece_size = block_size - accessor_type::piece_internal_fields_size;
                         auto p = heap.allocate( piece_size, 1 );
                         ASSERT_TRUE( p );
                         pieces.emplace( p, piece_size, 1, block_size );
@@ -581,7 +582,7 @@ namespace azul
                     {
                         auto [p, piece_size, alignment, block_size] = pieces.top();
                         heap.deallocate( p, piece_size, 1 );
-                        ASSERT_EQ( static_cast< ptrdiff_t >( block_size ), accessor_type::garbage_begin( heap )->size_ );
+                        ASSERT_EQ( static_cast< accessor_type::size_type >( block_size ), accessor_type::garbage_begin( heap )->size_ );
                         pieces.pop();
                     }
                     ASSERT_EQ( initial_garbage_state.size(), accessor_type::garbage_size( heap ) );
@@ -598,7 +599,7 @@ namespace azul
                     auto garbage_it = accessor_type::garbage_begin( heap );
                     for ( ; it != std::end( expected_garbage_state ); ++it, ++garbage_it )
                     {
-                        EXPECT_EQ( static_cast< ptrdiff_t >( *it ), garbage_it->size_ );
+                        EXPECT_EQ( static_cast< accessor_type::pointer_type >( *it ), garbage_it->size_ );
                     }
 
                     heap.deallocate( p, requested_size, requested_alignment );
@@ -639,6 +640,7 @@ namespace azul
                 {
                     heap_type heap;
 
+                    // get current pool state
                     auto pool_head = accessor_type::pool_begin( heap );
                     auto unallocated = pool_head->unallocated_;
 
@@ -647,11 +649,21 @@ namespace azul
 
                     // test memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
-
+                    
+                    // check that pool stays untouched
                     EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
                     EXPECT_EQ( unallocated, pool_head->unallocated_ );
 
+                    // get block head and size
+                    auto block_head = accessor_type::get_block_header_ptr_ref( reinterpret_cast< accessor_type::pointer_type >( p ) );
+                    auto block_size = *reinterpret_cast< accessor_type::size_type* >( block_head );
+
+                    // gotcha! deallocate piece
                     heap.deallocate( p, requested_size, requested_alignment );
+
+                    // check that allocated virtual space was released
+                    p = accessor_type::virtual_alloc( block_size, reinterpret_cast< void* >( block_head ) );
+                    accessor_type::virtual_free( p, block_size );
                 }
                 catch ( ... )
                 {

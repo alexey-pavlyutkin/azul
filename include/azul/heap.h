@@ -180,14 +180,14 @@ namespace azul
         @param [in] size - size of requested memory block
         @throw std::bad_alloc on failture
         */
-        static void* virtual_alloc( size_type size )
+        static void* virtual_alloc( size_type size, void* desire = nullptr )
         {
             assert( size && size % system_page_size() == 0 );
 #ifdef _WIN32
-            auto block = ::VirtualAlloc( NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
+            auto block = ::VirtualAlloc( desire, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
             if ( !block ) throw std::bad_alloc();
 #else
-            auto block = ::mmap( 0, size, PROT_READ + PROT_WRITE, MAP_ANONYMOUS + MAP_SHARED, -1, 0 );
+            auto block = ::mmap( desire, size, PROT_READ + PROT_WRITE, MAP_ANONYMOUS + MAP_SHARED, -1, 0 );
             if ( MAP_FAILED == block ) throw std::bad_alloc();
 #endif
             return block;
@@ -221,10 +221,17 @@ namespace azul
         //    }
         //}
 
-        pointer_type& get_piece_header_ptr_field( pointer_type piece ) noexcept
+
+        /** Provides reference to block head pointer for given allocated piece
+
+        @param [in] piece - allocate memory piece
+        @retval reference to block head pointer
+        @throw nothing
+        */
+        static pointer_type& get_block_header_ptr_ref( pointer_type piece ) noexcept
         {
-            assert( p );
-            auto block_head_ptr = floor( p - sizeof( pointer_type ), std::alignment_of_v< pointer_type > );
+            assert( piece );
+            auto block_head_ptr = floor( piece - sizeof( pointer_type ), std::alignment_of_v< pointer_type > );
             return *reinterpret_cast< pointer_type* >( block_head_ptr );
         }
 
@@ -249,15 +256,15 @@ namespace azul
             *reinterpret_cast< size_type* >( block ) = sz;
 
             // find aligned region 
-            auto area = ceil( block + piece_internal_fields_size, alignment );
-            assert( area % alignment == 0 );
-            assert( area + static_cast< size_type >( bytes )<= block + sz );
+            auto aligned_area = ceil( block + piece_internal_fields_size, alignment );
+            assert( aligned_area % alignment == 0 );
+            assert( aligned_area + static_cast< size_type >( bytes )<= block + sz );
 
             // fill out block pointer
-            *reinterpret_cast< pointer_type* >( floor( area - sizeof( pointer_type ), std::alignment_of_v< pointer_type > ) ) = block;
+            get_block_header_ptr_ref( aligned_area ) = block;
 
             // return pointer to aligned region as the result
-            return reinterpret_cast< void* >( area );
+            return reinterpret_cast< void* >( aligned_area );
         }
 
 
@@ -310,13 +317,13 @@ namespace azul
                     assert( tile % granularity_ == 0 );
 
                     // if pool block has enough unallocated space
-                    if ( tile - current_pool_block <= pool_block_size() )
+                    if ( tile <= current_pool_block + pool_block_size() )
                     {
                         // fill <block size> field
                         *reinterpret_cast< size_type* >( unallocated ) = static_cast< size_type >( tile - unallocated );
 
                         // fill <block head pointer> field
-                        *reinterpret_cast< pointer_type* >( floor( aligned_area - sizeof( pointer_type ), std::alignment_of_v< pointer_type > ) ) = unallocated;
+                        get_block_header_ptr_ref( aligned_area ) = unallocated;
 
                         // allocate block
                         unallocated = tile;
@@ -355,7 +362,7 @@ namespace azul
                     auto tile = ceil( aligned_area + bytes, granularity_ );
 
                     // if current garbage block cannot fit requested region
-                    if ( tile > garbage_block_tile )
+                    if ( auto remainder = tile - garbage_block_tile; remainder < 0 )
                     {
                         // break garbage search if maximum depth reached
                         if ( garbage_search_depth++ >= Policy::garbage_search_depth ) break;
@@ -367,30 +374,30 @@ namespace azul
                     else
                     {
                         // there is a reminder
-                        if ( tile < garbage_block_tile )
+                        if ( remainder > 0 )
                         {
                             // reminder MUST be multiplication of granularity_
-                            assert( ( garbage_block_tile - tile ) % granularity_ == 0 );
+                            assert( remainder % granularity_ == 0 );
 
                             // update <block size> field 
-                            reinterpret_cast< garbage_block_header* >( garbage_block )->size_ = tile - garbage_block;
+                            reinterpret_cast< garbage_block_header* >( garbage_block )->size_ = remainder;
 
-                            // markup new garbage block header at tile
+                            // mark up new garbage block header at tile
                             reinterpret_cast< garbage_block_header* >( tile )->next_ = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
-                            reinterpret_cast< garbage_block_header* >( tile )->size_ = garbage_block_tile - tile;
+                            reinterpret_cast< garbage_block_header* >( tile )->size_ = remainder;
 
-                            // cut [garbage_block, tile] region
+                            // replace allocated block with the reminder in the garbage list
                             garbage_block_ref.get() = tile;
                         }
                         else
                         {
-                            // entirely cut current block from the list
+                            // entirely remove current block from the list
                             garbage_block_ref.get() = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
                         }
                     }
 
                     // fill <block head ptr> field
-                    *reinterpret_cast< pointer_type* >( floor( aligned_area - sizeof( pointer_type ), std::alignment_of_v< pointer_type > ) ) = garbage_block;
+                    get_block_header_ptr_ref( aligned_area ) = garbage_block;
 
                     // return aligned region as the result
                     return reinterpret_cast< void* >( aligned_area );
@@ -448,19 +455,19 @@ namespace azul
         {
             if ( p )
             {
-                auto [block_head, block_size] = get_piece_fields( p );
+                auto block_head_ptr = get_block_header_ptr_ref( reinterpret_cast< pointer_type >( p ) );
+                auto block_size = *reinterpret_cast< size_type* >( block_head_ptr );
                 if ( block_size > pool_block_capacity() )
                 {
-                    virtual_free( reinterpret_cast< void* >( block_head ), block_size );
+                    virtual_free( reinterpret_cast< void* >( block_head_ptr ), block_size );
                 }
                 else
                 {
                     lock_type lock( guard_ );
 
                     // prepend block to garbage ( no reason to touch <block size> field )
-                    auto new_garbage_head = block_head;
-                    reinterpret_cast< garbage_block_header* >( block_head )->next_ = garbage_;
-                    garbage_ = new_garbage_head;
+                    reinterpret_cast< garbage_block_header* >( block_head_ptr )->next_ = garbage_;
+                    garbage_ = block_head_ptr;
                 }
             }
         }

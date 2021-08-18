@@ -21,6 +21,12 @@ namespace azul
             static constexpr auto pool_block_header_size = HeapType::ceil( sizeof( pool_block_header_type ), granularity );
             static constexpr auto piece_internal_fields_size = HeapType::piece_internal_fields_size;
 
+            static pointer_type ceil( pointer_type value, size_type mod ) noexcept { return HeapType::ceil( value, mod ); }
+            static pointer_type floor( pointer_type value, size_type mod ) noexcept { return HeapType::floor( value, mod ); }
+            static pointer_type& get_block_header_ptr_ref( pointer_type piece ) noexcept { return HeapType::get_block_header_ptr_ref( piece ); }
+            static void* virtual_alloc( size_type size, void* desire = nullptr ) { return HeapType::virtual_alloc( size, desire ); }
+            static void virtual_free( void* p, size_type size ) noexcept { return HeapType::virtual_free( p, size ); }
+
         private:
 
             template < typename ValueType >
@@ -41,7 +47,7 @@ namespace azul
                 self_type operator++( int ) noexcept { self_type tmp = *this; ++( *this ); return tmp; }
                 bool friend operator==( const self_type& lhs, const self_type& rhs ) noexcept { return lhs.it_ == rhs.it_; }
                 bool friend operator!=( const self_type& lhs, const self_type& rhs ) noexcept { return !( lhs == rhs ); }
-                explicit operator intptr_t() const noexcept { return it_; }
+                explicit operator pointer_type() const noexcept { return it_; }
 
             private:
                 pointer_type it_ = 0;
