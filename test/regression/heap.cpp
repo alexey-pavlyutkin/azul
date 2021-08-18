@@ -461,7 +461,7 @@ namespace azul
                     EXPECT_NE( garbage_head, accessor_type::garbage_end( heap ) );
 
                     // check that garbage points exactly to just deallocated block
-                    EXPECT_EQ( static_cast< accessor_type::pointer_type >( garbage_head ), block_head );
+                    EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( garbage_head ), block_head );
 
                     // check size field
                     EXPECT_EQ( block_tile - block_head, garbage_head->size_ );
@@ -512,7 +512,7 @@ namespace azul
 
                     // get free space in the 1st pool block
                     auto pool_head = accessor_type::pool_begin( heap );
-                    auto block_free_space = static_cast< accessor_type::pointer_type >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
+                    auto block_free_space = static_cast< typename accessor_type::pointer_type >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
 
                     // allocate requested size
                     auto p = heap.allocate( requested_size, requested_alignment );
@@ -532,7 +532,7 @@ namespace azul
                     else
                     {
                         // else make sure the pool has grown
-                        EXPECT_EQ( static_cast< accessor_type::pointer_type >( pool_head ), accessor_type::pool_begin( heap )->next_ );
+                        EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( pool_head ), accessor_type::pool_begin( heap )->next_ );
                     }
 
                     heap.deallocate( p, requested_size, requested_alignment );
@@ -661,7 +661,7 @@ namespace azul
                     {
                         auto [p, piece_size, alignment, block_size] = pieces.top();
                         heap.deallocate( p, piece_size, 1 );
-                        ASSERT_EQ( static_cast< accessor_type::size_type >( block_size ), accessor_type::garbage_begin( heap )->size_ );
+                        ASSERT_EQ( static_cast< typename accessor_type::size_type >( block_size ), accessor_type::garbage_begin( heap )->size_ );
                         pieces.pop();
                     }
                     ASSERT_EQ( initial_garbage_state.size(), accessor_type::garbage_size( heap ) );
@@ -678,7 +678,7 @@ namespace azul
                     auto garbage_it = accessor_type::garbage_begin( heap );
                     for ( ; it != std::end( expected_garbage_state ); ++it, ++garbage_it )
                     {
-                        EXPECT_EQ( static_cast< accessor_type::pointer_type >( *it ), garbage_it->size_ );
+                        EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( *it ), garbage_it->size_ );
                     }
 
                     heap.deallocate( p, requested_size, requested_alignment );
@@ -734,8 +734,8 @@ namespace azul
                     EXPECT_EQ( unallocated, pool_head->unallocated_ );
 
                     // get block head and size
-                    auto block_head = accessor_type::get_block_header_ptr_ref( reinterpret_cast< accessor_type::pointer_type >( p ) );
-                    auto block_size = *reinterpret_cast< accessor_type::size_type* >( block_head );
+                    auto block_head = accessor_type::get_block_header_ptr_ref( reinterpret_cast< typename accessor_type::pointer_type >( p ) );
+                    auto block_size = *reinterpret_cast< typename accessor_type::size_type* >( block_head );
 
                     // gotcha! deallocate piece
                     heap.deallocate( p, requested_size, requested_alignment );
