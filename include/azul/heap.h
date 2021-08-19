@@ -136,7 +136,7 @@ namespace azul
             {
                 for ( std::size_t spin = 0; spin < Policy::spin_limit; ++spin )
                 {
-                    if ( auto value = action(); value & hazard_ == 0 ) return value;
+                    if ( auto value = action(); ( value & hazard_ ) == 0 ) return value;
                 }
                 std::this_thread::yield();
             }
@@ -351,12 +351,12 @@ namespace azul
                 if ( !current_garbage_block )
                 {
                     // unlock current garbage block and leave
-                    current_garbage_block_ref.get().store( garbage_block, std::memory_order_release );
+                    current_garbage_block_ref.get().store( current_garbage_block, std::memory_order_release );
                     return nullptr;
                 }
 
                 // get reference to the next garbage block pointer
-                auto next_garbage_block_ref = reinterpret_cast< garbage_block_header* >( current_garbage_block )->next_;
+                auto next_garbage_block_ref = std::ref( reinterpret_cast< garbage_block_header* >( current_garbage_block )->next_ );
 
                 // get current garbage block tile
                 auto current_garbage_block_tile = current_garbage_block + reinterpret_cast< garbage_block_header* >( current_garbage_block )->size_;
@@ -377,18 +377,19 @@ namespace azul
                     }
 
                     // wait till the next garbage block gets unlocked
-                    auto next = wait_till_hazarder( [&]() noexcept {
+                    auto next_garbage_block = wait_till_hazarded( [&]() noexcept {
                         return next_garbage_block_ref.get().load( std::memory_order_acquire ); }
                     );
 
                     // get lock over the next garbage block (no reason to sync the value, we'll do it immediately after)
-                    return next_garbage_block_ref.get().store( next | hazard_, std::memory_order_relaxed );
+                    next_garbage_block_ref.get().store( next_garbage_block | hazard_, std::memory_order_relaxed );
 
                     // unlock current garbage block 
-                    garbage_block_ref.get().store( garbage_block, std::memory_order_release );
+                    current_garbage_block_ref.get().store( current_garbage_block, std::memory_order_release );
 
                     // proceed to the next block
-                    garbage_block_ref = next_garbage_block_ref;
+                    current_garbage_block_ref = next_garbage_block_ref;
+                    current_garbage_block = next_garbage_block;
                     continue;
                 }
                 else
@@ -397,27 +398,32 @@ namespace azul
                     if ( remainder > 0 )
                     {
                         // update size field of current garbage block
-                        reinterpret_cast< garbage_block_header* >( garbage_block )->size_ = tile - garbage_block;
+                        reinterpret_cast< garbage_block_header* >( current_garbage_block )->size_ = tile - current_garbage_block;
+
+                        // wait till the next garbage block gets unlocked
+                        auto next_garbage_block = wait_till_hazarded( [ & ]() noexcept {
+                            return next_garbage_block_ref.get().load( std::memory_order_acquire ); }
+                        );
 
                         // mark up new garbage block header at tile
-                        reinterpret_cast< garbage_block_header* >( tile )->next_ = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
                         reinterpret_cast< garbage_block_header* >( tile )->size_ = remainder;
+                        reinterpret_cast< garbage_block_header* >( tile )->next_.store( next_garbage_block, std::memory_order_relaxed );
 
                         // replace allocated block with the reminder in the garbage list
-                        garbage_block_ref.get() = tile;
+                        current_garbage_block_ref.get().store( tile, std::memory_order_release );
                     }
                     else
                     {
                         // wait till pointer to next block gets unlocked and assign it to garbage_block_ref cutting current garbage block from the sequence
-                        auto next = wait_till_hazarder( [&]() noexcept {
-                            return reinterpret_cast< garbage_block_header* >( garbage_block )->next_.load( std::memory_order_acquire ); }
+                        auto next = wait_till_hazarded( [&]() noexcept {
+                            return next_garbage_block_ref.get().load( std::memory_order_acquire ); }
                         );
-                        garbage_block_ref.get().store( next );
+                        current_garbage_block_ref.get().store( next );
                     }
                 }
 
                 // fill <block head ptr> field
-                get_block_header_ptr_ref( aligned_area ) = garbage_block;
+                get_block_header_ptr_ref( aligned_area ) = current_garbage_block;
 
                 // return aligned region as the result
                 return reinterpret_cast< void* >( aligned_area );
@@ -477,11 +483,13 @@ namespace azul
                 }
                 else
                 {
-                    lock_type lock( guard_ );
-
-                    // prepend block to garbage ( no reason to touch <block size> field )
-                    reinterpret_cast< garbage_block_header* >( block_head_ptr )->next_ = garbage_;
-                    garbage_ = block_head_ptr;
+                    while ( true )
+                    {
+                        // prepend block to garbage ( no reason to touch <block size> field )
+                        auto garbage = garbage_.load( std::memory_order_acquire );
+                        reinterpret_cast< garbage_block_header* >( block_head_ptr )->next_.store( garbage, std::memory_order_relaxed );
+                        if ( garbage_.compare_exchange_weak( garbage, block_head_ptr, std::memory_order_acq_rel, std::memory_order_relaxed ) ) break;
+                    }
                 }
             }
         }
