@@ -113,6 +113,7 @@ namespace azul
         struct test_allocate_on_top_of_garbage_1
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
             static constexpr std::size_t requested_size = 1;
             static constexpr std::size_t requested_alignment = 1;
@@ -123,6 +124,7 @@ namespace azul
         struct test_allocate_on_top_of_garbage_2
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t );
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
@@ -133,6 +135,7 @@ namespace azul
         struct test_allocate_on_top_of_garbage_3
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
             static constexpr std::size_t requested_size = policy_type::granularity / 2;
             static constexpr std::size_t requested_alignment = policy_type::granularity / 2;
@@ -143,6 +146,7 @@ namespace azul
         struct test_allocate_on_top_of_garbage_4
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
@@ -153,6 +157,7 @@ namespace azul
         struct test_allocate_in_middle_of_garbage
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, 2 * policy_type::granularity, policy_type::granularity };
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
@@ -163,6 +168,7 @@ namespace azul
         struct test_allocate_on_bottom_of_garbage
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, policy_type::granularity, 2 * policy_type::granularity };
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
@@ -173,6 +179,7 @@ namespace azul
         struct test_allocate_on_top_of_garbage_with_splitting_1
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { 3 * policy_type::granularity, policy_type::granularity, policy_type::granularity };
             static constexpr std::size_t requested_size = 1;
             static constexpr std::size_t requested_alignment = 1;
@@ -183,6 +190,7 @@ namespace azul
         struct test_allocate_on_top_of_garbage_with_splitting_2
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { 3 * policy_type::granularity, policy_type::granularity, policy_type::granularity };
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
@@ -193,6 +201,7 @@ namespace azul
         struct test_allocate_in_middle_of_garbage_with_splitting
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, 3 * policy_type::granularity, policy_type::granularity };
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
@@ -203,6 +212,7 @@ namespace azul
         struct test_allocate_on_bottom_of_garbage_with_splitting
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity, policy_type::granularity, 3 * policy_type::granularity, };
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
@@ -213,6 +223,7 @@ namespace azul
         struct test_allocate_on_garbage_search_depth_in
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = []() {
                 std::list< std::size_t > result( policy_type::garbage_search_depth - 1, policy_type::granularity );
                 result.emplace_back( 2 * policy_type::granularity );
@@ -622,6 +633,7 @@ namespace azul
             template < typename U >
             static void run(
                 U&&,
+                decltype( U::is_garbage_test ) = U::is_garbage_test,
                 const decltype( U::initial_garbage_state ) & initial_garbage_state = U::initial_garbage_state,
                 decltype( U::requested_size ) requested_size = U::requested_size,
                 decltype( U::requested_alignment ) requested_alignment = U::requested_alignment,
@@ -744,6 +756,16 @@ namespace azul
         TYPED_TEST( test_heap, allocate_deallocate_large_block )
         {
             allocate_deallocate_large_block_impl< TypeParam >()( );
+        }
+
+        //-----------------------------------------------------------------------------------------------------------------------------------------------------
+
+        TYPED_TEST( test_heap, compare_heaps )
+        {
+            using heap_type = typename test_heap< TypeParam >::heap_type;
+            heap_type h1, h2;
+            EXPECT_TRUE( h1.is_equal( h1 ) );
+            EXPECT_FALSE( h1.is_equal( h2 ) );
         }
 
         //-----------------------------------------------------------------------------------------------------------------------------------------------------
