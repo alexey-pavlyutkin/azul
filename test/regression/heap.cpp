@@ -633,7 +633,7 @@ namespace azul
             template < typename U >
             static void run(
                 U&&,
-                decltype( U::is_garbage_test ) = U::is_garbage_test,
+                decltype( U::is_allocate_on_garbage_test ) = U::is_allocate_on_garbage_test,
                 const decltype( U::initial_garbage_state ) & initial_garbage_state = U::initial_garbage_state,
                 decltype( U::requested_size ) requested_size = U::requested_size,
                 decltype( U::requested_alignment ) requested_alignment = U::requested_alignment,
