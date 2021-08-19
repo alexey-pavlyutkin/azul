@@ -110,17 +110,6 @@ namespace azul
         };
 
         template < typename Policy >
-        struct test_allocate_on_top_of_garbage
-        {
-            using policy_type = Policy;
-            static constexpr bool is_garbage_allocation_test = true;
-            inline static const std::list< std::size_t > initial_garbage_state = { policy_type::granularity };
-            static constexpr std::size_t requested_size = 1;
-            static constexpr std::size_t requested_alignment = 1;
-            inline static const std::list< std::size_t > expected_garbage_state;
-        };
-
-        template < typename Policy >
         struct test_allocate_on_top_of_garbage_1
         {
             using policy_type = Policy;
@@ -633,11 +622,10 @@ namespace azul
             template < typename U >
             static void run(
                 U&&,
-                decltype( U::is_pool_allocation_test ) = U::is_pool_allocation_test,
-                decltype( U::initial_garbage_state ) const & initial_garbage_state = U::initial_garbage_state,
+                const decltype( U::initial_garbage_state ) & initial_garbage_state = U::initial_garbage_state,
                 decltype( U::requested_size ) requested_size = U::requested_size,
                 decltype( U::requested_alignment ) requested_alignment = U::requested_alignment,
-                decltype( U::expected_garbage_state ) expected_garbage_state = U::expected_garbage_state
+                const decltype( U::expected_garbage_state ) & expected_garbage_state = U::expected_garbage_state
             ) noexcept
             {
                 using heap_type = typename test_heap< U >::heap_type;
