@@ -7,6 +7,8 @@
 #include <new>
 #include <mutex>
 #include <type_traits>
+#include <atomic>
+#include <thread>
 #ifdef _WIN32
 #   include <windows.h>
 #   ifdef max
@@ -84,14 +86,14 @@ namespace azul
         struct garbage_block_header
         {
             size_type size_;
-            pointer_type next_;
+            std::atomic_intptr_t next_;
         };
 
         static constexpr size_type piece_internal_fields_size = sizeof( size_type ) + sizeof( pointer_type );
         static constexpr pointer_type hazard_ = 1;
         mutex_type   guard_;
         pointer_type pool_ = 0;
-        pointer_type garbage_ = 0;
+        std::atomic_intptr_t garbage_ = 0;
 
 
         /** Rounds given number upward with given modulo
@@ -125,6 +127,20 @@ namespace azul
         */
         static_assert( Policy::granularity, "Policy::granularity supposed to be positive integer" );
         static constexpr size_type granularity_ = ceil( Policy::granularity, std::hardware_destructive_interference_size );
+
+
+        template < typename ActionType >
+        auto wait_till_hazarded( ActionType&& action )
+        {
+            while ( true )
+            {
+                for ( std::size_t spin = 0; spin < Policy::spin_limit; ++spin )
+                {
+                    if ( auto value = action(); value & hazard_ == 0 ) return value;
+                }
+                std::this_thread::yield();
+            }
+        }
 
 
         /** Provides virtual memory allocation granularity supported by target OS
@@ -183,7 +199,7 @@ namespace azul
             auto block = ::VirtualAlloc( desire, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE );
             if ( !block ) throw std::bad_alloc();
 #else
-            auto block = ::mmap( desire, size, PROT_READ + PROT_WRITE, MAP_ANONYMOUS + MAP_SHARED, -1, 0 );
+            auto block = ::mmap( desire, size, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_SHARED, -1, 0 );
             if ( MAP_FAILED == block ) throw std::bad_alloc();
 #endif
             return block;
@@ -317,70 +333,97 @@ namespace azul
 
         /** Tries to allocate a region of requested size and alignment from garbage
         */
-        void* allocate_on_garbage( std::size_t bytes, std::size_t alignment )
+        void* allocate_on_garbage( std::size_t bytes, std::size_t alignment ) noexcept
         {
             static_assert( Policy::garbage_search_depth, "Policy::garbage_search_depth supposed to be positive integer" );
 
-            // look for available block through the garbage
-            auto garbage_block_ref = std::ref( garbage_ );
             std::size_t garbage_search_depth = 0;
+
+            // use this->garbage_ as current garbage block an lock it
+            auto current_garbage_block_ref = std::ref( garbage_ );
+            auto current_garbage_block = wait_till_hazarded( [&]() {
+                return current_garbage_block_ref.get().fetch_or( hazard_, std::memory_order_acq_rel ); }
+            );
+
             while ( true )
             {
-                if ( auto garbage_block = garbage_block_ref.get() )
+                // nothing left to search through
+                if ( !current_garbage_block )
                 {
-                    // get garbage block tile
-                    auto garbage_block_tile = garbage_block + reinterpret_cast< garbage_block_header* >( garbage_block )->size_;
+                    // unlock current garbage block and leave
+                    current_garbage_block_ref.get().store( garbage_block, std::memory_order_release );
+                    return nullptr;
+                }
 
-                    // calculate aligned region pointer and tile of requested block
-                    auto aligned_area = ceil( garbage_block + sizeof( size_type ) + sizeof( pointer_type ), alignment );
-                    auto tile = ceil( aligned_area + bytes, granularity_ );
+                // get reference to the next garbage block pointer
+                auto next_garbage_block_ref = reinterpret_cast< garbage_block_header* >( current_garbage_block )->next_;
 
-                    // if current garbage block cannot fit requested region
-                    if ( auto remainder = garbage_block_tile - tile; remainder < 0 )
+                // get current garbage block tile
+                auto current_garbage_block_tile = current_garbage_block + reinterpret_cast< garbage_block_header* >( current_garbage_block )->size_;
+
+                // calculate aligned region placement and tile of requested block
+                auto aligned_area = ceil( current_garbage_block + sizeof( size_type ) + sizeof( pointer_type ), alignment );
+                auto tile = ceil( aligned_area + bytes, granularity_ );
+
+                // if current garbage block cannot fit requested region
+                if ( auto remainder = current_garbage_block_tile - tile; remainder < 0 )
+                {
+                    // if maximum search depth reached
+                    if ( garbage_search_depth++ >= Policy::garbage_search_depth )
                     {
-                        // break garbage search if maximum depth reached
-                        if ( garbage_search_depth++ >= Policy::garbage_search_depth ) break;
-
-                        // proceed to the next garbage block
-                        garbage_block_ref = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
-                        continue;
-                    }
-                    else
-                    {
-                        // there is a reminder
-                        if ( remainder > 0 )
-                        {
-                            // update <block size> field 
-                            reinterpret_cast< garbage_block_header* >( garbage_block )->size_ = tile - garbage_block;
-
-                            // mark up new garbage block header at tile
-                            reinterpret_cast< garbage_block_header* >( tile )->next_ = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
-                            reinterpret_cast< garbage_block_header* >( tile )->size_ = remainder;
-
-                            // replace allocated block with the reminder in the garbage list
-                            garbage_block_ref.get() = tile;
-                        }
-                        else
-                        {
-                            // entirely remove current block from the list
-                            garbage_block_ref.get() = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
-                        }
+                        // unlock current garbage block and admit failture
+                        current_garbage_block_ref.get().store( current_garbage_block, std::memory_order_release );
+                        return nullptr;
                     }
 
-                    // fill <block head ptr> field
-                    get_block_header_ptr_ref( aligned_area ) = garbage_block;
+                    // wait till the next garbage block gets unlocked
+                    auto next = wait_till_hazarder( [&]() noexcept {
+                        return next_garbage_block_ref.get().load( std::memory_order_acquire ); }
+                    );
 
-                    // return aligned region as the result
-                    return reinterpret_cast< void* >( aligned_area );
+                    // get lock over the next garbage block (no reason to sync the value, we'll do it immediately after)
+                    return next_garbage_block_ref.get().store( next | hazard_, std::memory_order_relaxed );
+
+                    // unlock current garbage block 
+                    garbage_block_ref.get().store( garbage_block, std::memory_order_release );
+
+                    // proceed to the next block
+                    garbage_block_ref = next_garbage_block_ref;
+                    continue;
                 }
                 else
                 {
-                    break;
-                }
-            }
+                    // there is a reminder
+                    if ( remainder > 0 )
+                    {
+                        // update size field of current garbage block
+                        reinterpret_cast< garbage_block_header* >( garbage_block )->size_ = tile - garbage_block;
 
-            return nullptr;
+                        // mark up new garbage block header at tile
+                        reinterpret_cast< garbage_block_header* >( tile )->next_ = reinterpret_cast< garbage_block_header* >( garbage_block )->next_;
+                        reinterpret_cast< garbage_block_header* >( tile )->size_ = remainder;
+
+                        // replace allocated block with the reminder in the garbage list
+                        garbage_block_ref.get() = tile;
+                    }
+                    else
+                    {
+                        // wait till pointer to next block gets unlocked and assign it to garbage_block_ref cutting current garbage block from the sequence
+                        auto next = wait_till_hazarder( [&]() noexcept {
+                            return reinterpret_cast< garbage_block_header* >( garbage_block )->next_.load( std::memory_order_acquire ); }
+                        );
+                        garbage_block_ref.get().store( next );
+                    }
+                }
+
+                // fill <block head ptr> field
+                get_block_header_ptr_ref( aligned_area ) = garbage_block;
+
+                // return aligned region as the result
+                return reinterpret_cast< void* >( aligned_area );
+            }
         }
+
 
     protected:
 
