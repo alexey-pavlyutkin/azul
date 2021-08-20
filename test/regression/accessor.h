@@ -1,9 +1,34 @@
-#ifndef __AZUL__UT__ACCESSOR__H__
-#define __AZUL__UT__ACCESSOR__H__
+// MIT License
+//
+// Copyright( c ) 2021 Alexey Pavlyutkin
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this softwareand associated documentation files( the "Software" ), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and /or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions :
+//
+// The above copyright noticeand this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+#ifndef __LOCK_FREE_MEMORY_RESOURCE_UT_ACCESSOR__H__
+#define __LOCK_FREE_MEMORY_RESOURCE_UT_ACCESSOR__H__
+
 
 #include <iterator>
 
-namespace azul
+
+namespace thinks
 {
     namespace ut
     {
@@ -58,22 +83,22 @@ namespace azul
             using pool_iterator = iterator< pool_block_header_type >;
             using garbage_iterator = iterator< garbage_block_header_type >;
 
-            static pool_iterator pool_begin( const HeapType& heap ) noexcept { return pool_iterator( heap.pool_ ); }
+            static pool_iterator pool_begin( const HeapType& lock_free_memory_resource ) noexcept { return pool_iterator( lock_free_memory_resource.pool_ ); }
             static pool_iterator pool_end( const HeapType& ) noexcept { return pool_iterator(); }
-            static garbage_iterator garbage_begin( const HeapType& heap ) noexcept { return garbage_iterator( heap.garbage_ ); }
+            static garbage_iterator garbage_begin( const HeapType& lock_free_memory_resource ) noexcept { return garbage_iterator( lock_free_memory_resource.garbage_ ); }
             static garbage_iterator garbage_end( const HeapType& ) noexcept { return garbage_iterator(); }
 
-            static std::size_t pool_size( const HeapType& heap ) noexcept
+            static std::size_t pool_size( const HeapType& lock_free_memory_resource ) noexcept
             {
                 std::size_t sz = 0;
-                for ( auto it = pool_begin( heap ), end = pool_end( heap ); it != end; ++it, ++sz );
+                for ( auto it = pool_begin( lock_free_memory_resource ), end = pool_end( lock_free_memory_resource ); it != end; ++it, ++sz );
                 return sz;
             }
 
-            static std::size_t garbage_size( const HeapType& heap ) noexcept
+            static std::size_t garbage_size( const HeapType& lock_free_memory_resource ) noexcept
             {
                 std::size_t sz = 0;
-                for ( auto it = garbage_begin( heap ), end = garbage_end( heap ); it != end; ++it, ++sz );
+                for ( auto it = garbage_begin( lock_free_memory_resource ), end = garbage_end( lock_free_memory_resource ); it != end; ++it, ++sz );
                 return sz;
             }
         };

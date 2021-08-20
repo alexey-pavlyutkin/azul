@@ -1,6 +1,6 @@
 cmake_minimum_required( VERSION 3.15 FATAL_ERROR )
 
-project( azul LANGUAGES CXX )
+project( lfmr LANGUAGES CXX )
 
 set( CMAKE_MODULE_PATH ${PROJECT_SOURCE_DIR}/cmake )
 set( CMAKE_ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib )

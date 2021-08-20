@@ -5,14 +5,14 @@ cmake_minimum_required( VERSION 3.15 FATAL_ERROR )
 #
 add_executable( regression
     accessor.h
-    heap.cpp
+    lock_free_memory_resource.cpp
 )
 
 
 #
 # ...and linking dependencies
 #
-target_link_libraries( regression PRIVATE gtest gtest_main azul )
+target_link_libraries( regression PRIVATE gtest gtest_main lfmr )
 
 
 #

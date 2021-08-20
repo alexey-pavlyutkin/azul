@@ -1,6 +1,6 @@
 #include <gtest/gtest.h>
 #include "accessor.h"
-#include <azul/heap.h>
+#include <lfmr/lock_free_memory_resource.h>
 #include <list>
 #include <stack>
 #include <tuple>
@@ -8,7 +8,7 @@
 #include <limits>
 #include <cstring>
 
-namespace azul
+namespace thinks
 {
     namespace ut
     {
@@ -16,7 +16,7 @@ namespace azul
         struct test_heap : ::testing::Test
         {
             using policy_type = typename TestType::policy_type;
-            using heap_type = heap< policy_type >;
+            using heap_type = lock_free_memory_resource< policy_type >;
             using accessor_type = accessor< heap_type >;
             using pointer_type = typename accessor_type::pointer_type;
             using size_type = typename accessor_type::size_type;
@@ -89,7 +89,7 @@ namespace azul
         {
             using policy_type = Policy;
             static constexpr bool is_pool_allocation_test = true;
-            inline static const std::size_t requested_size = ( Size == use_max_piece_size_on_pool ) ? accessor< heap< policy_type > >::pool_block_capacity - sizeof( ptrdiff_t) - sizeof( intptr_t ) : Size;
+            inline static const std::size_t requested_size = ( Size == use_max_piece_size_on_pool ) ? accessor< lock_free_memory_resource< policy_type > >::pool_block_capacity - sizeof( ptrdiff_t) - sizeof( intptr_t ) : Size;
             static constexpr std::size_t requested_alignment = Alignment;
         };
 
@@ -258,7 +258,7 @@ namespace azul
         struct test_allocate_deallocate_large_block
         {
             using policy_type = Policy;
-            using accessor_type = accessor< heap < policy_type > >;
+            using accessor_type = accessor< lock_free_memory_resource < policy_type > >;
             static constexpr bool is_large_block_test = true;
             inline static const std::size_t requested_size = accessor_type::pool_block_size - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size + 1;
             static constexpr std::size_t requested_alignment = 1;
@@ -270,6 +270,15 @@ namespace azul
             test_invalid_arguments< default_policy, 0, 1, std::invalid_argument >,
 #ifndef _DEBUG
             test_invalid_arguments< default_policy, 1, 0, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 3, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 5, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 6, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 7, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 9, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 15, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 17, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 255, std::invalid_argument >,
+            test_invalid_arguments< default_policy, 1, 257, std::invalid_argument >,
 #endif
             test_invalid_arguments< default_policy, 1, 1 << 17, std::invalid_argument >,
             test_invalid_arguments< set_pool_block_size< default_policy, 1 << 17 >, 1, 1 << 18, std::invalid_argument >,
@@ -279,11 +288,6 @@ namespace azul
             test_allocate_deallocate_on_pool< default_policy, 1, 1 >,
             test_allocate_deallocate_on_pool< default_policy, 1, 2 >,
             test_allocate_deallocate_on_pool< default_policy, 1, 4 >,
-#ifndef _DEBUG
-            test_allocate_deallocate_on_pool< default_policy, 1, 5 >,
-            test_allocate_deallocate_on_pool< default_policy, 1, 6 >,
-            test_allocate_deallocate_on_pool< default_policy, 1, 7 >,
-#endif
             test_allocate_deallocate_on_pool< default_policy, 1, 1024 >,
             test_allocate_deallocate_on_pool< default_policy, 2047, 1024 >,
             test_allocate_deallocate_on_pool< default_policy, 2048, 512 >,
@@ -296,11 +300,6 @@ namespace azul
             test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 1, 1 >,
             test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 1, 2 >,
             test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 1, 4 >,
-#ifndef _DEBUG
-            test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 1, 5 >,
-            test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 1, 6 >,
-            test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 1, 7 >,
-#endif
             test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 1, 1024 >,
             test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 2047, 1024 >,
             test_allocate_deallocate_on_pool< set_granularity< default_policy, 0x100 >, 2048, 512 >,
@@ -313,11 +312,6 @@ namespace azul
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 1 >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 2 >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 4 >,
-#ifndef _DEBUG
-            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 5 >,
-            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 6 >,
-            test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 7 >,
-#endif
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 1, 1024 >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 2047, 1024 >,
             test_allocate_deallocate_on_pool< set_pool_block_size< default_policy, 1 << 20 >, 2048, 512 >,
@@ -390,8 +384,8 @@ namespace azul
 
                 try
                 {
-                    heap_type heap;
-                    [[maybe_unused]]auto p = heap.allocate( requested_size, requested_alignment );
+                    heap_type lock_free_memory_resource;
+                    [[maybe_unused]]auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
                     GTEST_FAIL();
                 }
                 catch ( const typename U::exception_type& )
@@ -431,18 +425,18 @@ namespace azul
 
                 try
                 {
-                    heap_type heap;
+                    heap_type lock_free_memory_resource;
 
                     // check that there is at least one pool block
-                    auto pool_block_begin = accessor_type::pool_begin( heap );
-                    EXPECT_NE( accessor_type::pool_end( heap ), pool_block_begin );
+                    auto pool_block_begin = accessor_type::pool_begin( lock_free_memory_resource );
+                    EXPECT_NE( accessor_type::pool_end( lock_free_memory_resource ), pool_block_begin );
 
                     // get pointer to unallocated space in the pool block
-                    auto pool_block = accessor_type::pool_begin( heap );
-                    auto unallocated = pool_block->unallocated_;
+                    auto pool_block = accessor_type::pool_begin( lock_free_memory_resource );
+                    auto unallocated = pool_block->unallocated_.load();
 
                     // allocate a peice
-                    auto p = heap.allocate( requested_size, requested_alignment );
+                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
 
                     // check allocated piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
@@ -454,11 +448,11 @@ namespace azul
                     EXPECT_EQ( block_tile, pool_block->unallocated_ );
 
                     // deallocate region
-                    heap.deallocate( p, requested_size, requested_alignment );
+                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
 
                     // check that garbage is not empty
-                    auto garbage_head = accessor_type::garbage_begin( heap );
-                    EXPECT_NE( garbage_head, accessor_type::garbage_end( heap ) );
+                    auto garbage_head = accessor_type::garbage_begin( lock_free_memory_resource );
+                    EXPECT_NE( garbage_head, accessor_type::garbage_end( lock_free_memory_resource ) );
 
                     // check that garbage points exactly to just deallocated block
                     EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( garbage_head ), block_head );
@@ -503,19 +497,19 @@ namespace azul
 
                 try
                 {
-                    heap_type heap;
+                    heap_type lock_free_memory_resource;
 
                     // allocate a half of the 1st pool block
                     auto lock_sz = accessor_type::pool_block_size / 2 - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
-                    auto lock_block = heap.allocate( lock_sz, 1 );
+                    auto lock_block = lock_free_memory_resource.allocate( lock_sz, 1 );
                     ASSERT_TRUE( lock_block );
 
                     // get free space in the 1st pool block
-                    auto pool_head = accessor_type::pool_begin( heap );
+                    auto pool_head = accessor_type::pool_begin( lock_free_memory_resource );
                     auto block_free_space = static_cast< typename accessor_type::pointer_type >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
 
                     // allocate requested size
-                    auto p = heap.allocate( requested_size, requested_alignment );
+                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
 
                     // check allocated memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
@@ -527,16 +521,16 @@ namespace azul
                     if ( block_size <= block_free_space )
                     {
                         // check that pool didn't grow
-                        EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
+                        EXPECT_EQ( pool_head, accessor_type::pool_begin( lock_free_memory_resource ) );
                     }
                     else
                     {
                         // else make sure the pool has grown
-                        EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( pool_head ), accessor_type::pool_begin( heap )->next_ );
+                        EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( pool_head ), accessor_type::pool_begin( lock_free_memory_resource )->next_ );
                     }
 
-                    heap.deallocate( p, requested_size, requested_alignment );
-                    heap.deallocate( lock_block, lock_sz, 1 );
+                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
+                    lock_free_memory_resource.deallocate( lock_block, lock_sz, 1 );
                 }
                 catch ( ... )
                 {
@@ -570,7 +564,7 @@ namespace azul
 
                 try
                 {
-                    heap_type heap;
+                    heap_type lock_free_memory_resource;
 
                     std::size_t half_block_sz = accessor_type::pool_block_size / 2 - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
                     std::size_t full_block_sz = accessor_type::pool_block_size - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
@@ -579,19 +573,19 @@ namespace azul
                     std::list< std::tuple< std::size_t, std::size_t, void* > > pieces;
                     for ( auto sz : { full_block_sz, half_block_sz, full_block_sz } )
                     {
-                        void* piece = heap.allocate( sz, 1 );
+                        void* piece = lock_free_memory_resource.allocate( sz, 1 );
                         ASSERT_TRUE( piece );
                         pieces.emplace_back( sz, 1, piece );
                     }
-                    auto pool_size = accessor_type::pool_size( heap );
+                    auto pool_size = accessor_type::pool_size( lock_free_memory_resource );
                     ASSERT_EQ( 3, pool_size );
 
-                    auto capable_pool_block = ++accessor_type::pool_begin( heap );
-                    auto unallocated = capable_pool_block->unallocated_;
+                    auto capable_pool_block = ++accessor_type::pool_begin( lock_free_memory_resource );
+                    auto unallocated = capable_pool_block->unallocated_.load();
 
                     // allocate a piece that can fit into 2nd pool block
                     std::size_t sz = accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size;
-                    auto p = heap.allocate( accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size, 1 );
+                    auto p = lock_free_memory_resource.allocate( accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size, 1 );
                     EXPECT_TRUE( p );
                     pieces.emplace_back( sz, 1, p );
 
@@ -599,14 +593,14 @@ namespace azul
                     test_heap< U >::check_memory_piece( p, sz, 1 );
 
                     // make sure exactly 2nd pool block fits the piece
-                    EXPECT_EQ( pool_size, accessor_type::pool_size( heap ) );
+                    EXPECT_EQ( pool_size, accessor_type::pool_size( lock_free_memory_resource ) );
                     auto [block_head, block_size] = test_heap< U >::get_piece_internal_fields( p );
                     EXPECT_LE( unallocated, block_head );
                     EXPECT_LE( block_head + block_size, capable_pool_block->unallocated_ );
 
                     for ( auto [size, alignment, piece] : pieces )
                     {
-                        heap.deallocate( piece, size, alignment );
+                        lock_free_memory_resource.deallocate( piece, size, alignment );
                     }
                 }
                 catch ( ... )
@@ -645,7 +639,7 @@ namespace azul
 
                 try
                 {
-                    heap_type heap;
+                    heap_type lock_free_memory_resource;
 
                     // prepare initial garbage state
                     std::stack< std::tuple< void*, std::size_t, std::size_t, std::size_t > > pieces;
@@ -653,35 +647,35 @@ namespace azul
                     {
                         ASSERT_EQ( 0, block_size % test_heap< U >::policy_type::granularity );
                         auto piece_size = block_size - accessor_type::piece_internal_fields_size;
-                        auto p = heap.allocate( piece_size, 1 );
+                        auto p = lock_free_memory_resource.allocate( piece_size, 1 );
                         ASSERT_TRUE( p );
                         pieces.emplace( p, piece_size, 1, block_size );
                     }
                     while ( !pieces.empty() )
                     {
                         auto [p, piece_size, alignment, block_size] = pieces.top();
-                        heap.deallocate( p, piece_size, 1 );
-                        ASSERT_EQ( static_cast< typename accessor_type::size_type >( block_size ), accessor_type::garbage_begin( heap )->size_ );
+                        lock_free_memory_resource.deallocate( p, piece_size, 1 );
+                        ASSERT_EQ( static_cast< typename accessor_type::size_type >( block_size ), accessor_type::garbage_begin( lock_free_memory_resource )->size_ );
                         pieces.pop();
                     }
-                    ASSERT_EQ( initial_garbage_state.size(), accessor_type::garbage_size( heap ) );
+                    ASSERT_EQ( initial_garbage_state.size(), accessor_type::garbage_size( lock_free_memory_resource ) );
 
                     // allocate requested memory piece
-                    auto p = heap.allocate( requested_size, requested_alignment );
+                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
 
                     // test memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
 
                     // check garbage state against expected
-                    EXPECT_EQ( expected_garbage_state.size(), accessor_type::garbage_size( heap ) );
+                    EXPECT_EQ( expected_garbage_state.size(), accessor_type::garbage_size( lock_free_memory_resource ) );
                     auto it = std::begin( expected_garbage_state );
-                    auto garbage_it = accessor_type::garbage_begin( heap );
+                    auto garbage_it = accessor_type::garbage_begin( lock_free_memory_resource );
                     for ( ; it != std::end( expected_garbage_state ); ++it, ++garbage_it )
                     {
                         EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( *it ), garbage_it->size_ );
                     }
 
-                    heap.deallocate( p, requested_size, requested_alignment );
+                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
                 }
                 catch ( ... )
                 {
@@ -717,20 +711,20 @@ namespace azul
 
                 try
                 {
-                    heap_type heap;
+                    heap_type lock_free_memory_resource;
 
                     // get current pool state
-                    auto pool_head = accessor_type::pool_begin( heap );
-                    auto unallocated = pool_head->unallocated_;
+                    auto pool_head = accessor_type::pool_begin( lock_free_memory_resource );
+                    auto unallocated = pool_head->unallocated_.load();
 
                     // allocate requested memory piece
-                    auto p = heap.allocate( requested_size, requested_alignment );
+                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
 
                     // test memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
                     
                     // check that pool stays untouched
-                    EXPECT_EQ( pool_head, accessor_type::pool_begin( heap ) );
+                    EXPECT_EQ( pool_head, accessor_type::pool_begin( lock_free_memory_resource ) );
                     EXPECT_EQ( unallocated, pool_head->unallocated_ );
 
                     // get block head and size
@@ -738,7 +732,7 @@ namespace azul
                     auto block_size = *reinterpret_cast< typename accessor_type::size_type* >( block_head );
 
                     // gotcha! deallocate piece
-                    heap.deallocate( p, requested_size, requested_alignment );
+                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
 
                     // check that allocated virtual space was released
                     p = accessor_type::virtual_alloc( block_size, reinterpret_cast< void* >( block_head ) );

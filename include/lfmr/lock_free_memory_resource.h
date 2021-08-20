@@ -1,11 +1,35 @@
-#ifndef __AZUL__HEAP__H__
-#define __AZUL__HEAP__H__
+// MIT License
+//
+// Copyright( c ) 2021 Alexey Pavlyutkin
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this softwareand associated documentation files( the "Software" ), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and /or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions :
+//
+// The above copyright noticeand this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
+
+
+#ifndef __LOCK_FREE_MEMORY_RESOURCE__H__
+#define __LOCK_FREE_MEMORY_RESOURCE__H__
 
 
 #include <memory_resource>
 #include <exception>
 #include <new>
 #include <mutex>
+#include <condition_variable>
 #include <type_traits>
 #include <atomic>
 #include <thread>
@@ -47,66 +71,72 @@ namespace std
 #endif
 
 
-namespace azul
+namespace thinks
 {
     //
     // forwarding declaration of UT's accessor
     //
-    namespace ut { template < typename Heap > struct accessor; }
+    namespace ut { template < typename lock_free_memory_resource > struct accessor; }
 
 
-    /** Default heap policy
+    /** Default lock_free_memory_resource policy
     */
     struct default_policy
     {
         static constexpr std::size_t block_size = 1 << 16;                                      //< desired pool block size in bytes
-        static constexpr std::size_t granularity = std::hardware_destructive_interference_size; //< desired heap granularity
+        static constexpr std::size_t granularity = std::hardware_destructive_interference_size; //< desired lock_free_memory_resource granularity
         static constexpr std::size_t garbage_search_depth = 64;                                 //< desired depth of garbage search
         static constexpr std::size_t spin_limit = 1024;                                         //< desired number of spins before thread goes asleep
     };
 
 
+    /** Implements lock free monotonic memory resource
+    */
     template < typename Policy = default_policy >
-    class heap : public std::pmr::memory_resource
+    class lock_free_memory_resource : public std::pmr::memory_resource
     {
         // allows access to the private part
         template < typename HeapType > friend struct ut::accessor;
 
+        /** Representation of pointer */
         using pointer_type = intptr_t;
-        using size_type = ptrdiff_t;
-        using mutex_type = std::mutex;
-        using lock_type = std::unique_lock< mutex_type >;
 
+        /** Representation of a size */
+        using size_type = ptrdiff_t;
+
+        /** Holds pool block header */
         struct pool_block_header
         {
-            pointer_type unallocated_;
-            pointer_type next_;
+            std::atomic< pointer_type > unallocated_;   //< pointer to unallocated area inside a pool block
+            pointer_type next_;                         //< poniter to the next pool block
         };
 
+        /** Holds */
         struct garbage_block_header
         {
             size_type size_;
-            std::atomic_intptr_t next_;
+            std::atomic< pointer_type > next_;
         };
 
-        static constexpr size_type piece_internal_fields_size = sizeof( size_type ) + sizeof( pointer_type );
+        static constexpr size_type piece_internal_fields_size_ = sizeof( size_type ) + sizeof( pointer_type );
         static constexpr pointer_type hazard_ = 1;
-        mutex_type   guard_;
-        pointer_type pool_ = 0;
-        std::atomic_intptr_t garbage_ = 0;
+
+        std::atomic< pointer_type > pool_ = 0;
+        std::atomic< pointer_type > garbage_ = 0;
+        std::condition_variable grow_cv_;
 
 
         /** Rounds given number upward with given modulo
 
         @param [in] value - value to be rounded
-        @param [in] mod - modulo
+        @param [in] mod - modulo (MUST be a power of 2 )
         @retval a multiple of mod equal or greater than given value
         @throw never
         */
         static constexpr pointer_type ceil( pointer_type value, size_type mod ) noexcept
         {
-            auto rem = value % mod;
-            return value + ( rem ? mod - rem : 0 );
+            auto mask = mod - 1;
+            return ( ( value & mask ) != 0 ) ? ( value | mask ) + 1 : value;
         }
 
 
@@ -119,16 +149,25 @@ namespace azul
         */
         static constexpr pointer_type floor( pointer_type value, size_type mod ) noexcept
         {
-            return value - value % mod;
+            auto mask = mod - 1;
+            return value & ~mask;
         }
 
 
-        /** Heap granularity, i.e. heap allocation quantum
+        /** lock_free_memory_resource granularity, i.e. lock_free_memory_resource allocation quantum
         */
         static_assert( Policy::granularity, "Policy::granularity supposed to be positive integer" );
         static constexpr size_type granularity_ = ceil( Policy::granularity, std::hardware_destructive_interference_size );
 
 
+        /** Cycles given action till returned value statys hazarded (the lowest bit is signalled)
+
+        If number of cycles exceeds the limit force current thread to yeild
+
+        @param [in] action - action to be cycled
+        @retval first non-hazarded result of the action
+        @throw whatever action throws
+        */
         template < typename ActionType >
         auto wait_till_hazarded( ActionType&& action )
         {
@@ -176,7 +215,7 @@ namespace azul
         };
 
 
-        /** Provides maximum size of memory block to be allocated on the heap
+        /** Provides maximum size of memory block to be allocated on the lock_free_memory_resource
         
         @retval size of unallocated memory in new pool block
         @throw nothing
@@ -234,7 +273,7 @@ namespace azul
         }
 
 
-        /** Allocates large memory block directly in process's virtual space not in the heap
+        /** Allocates large memory block directly in process's virtual space not in the lock_free_memory_resource
 
         @param [in] bytes - requested block size
         @param [in] alignment - requested block alignment
@@ -244,7 +283,7 @@ namespace azul
         void* allocate_large_block( std::size_t bytes, std::size_t alignment )
         {
             // calculate required size
-            size_type sz = ceil( ceil( piece_internal_fields_size, alignment ) + bytes, system_page_size() );
+            size_type sz = ceil( ceil( piece_internal_fields_size_, alignment ) + bytes, system_page_size() );
 
             // allocate memory
             auto block = reinterpret_cast< pointer_type >( virtual_alloc( sz ) );
@@ -253,7 +292,7 @@ namespace azul
             *reinterpret_cast< size_type* >( block ) = sz;
 
             // find aligned region 
-            auto aligned_area = ceil( block + piece_internal_fields_size, alignment );
+            auto aligned_area = ceil( block + piece_internal_fields_size_, alignment );
 
             // fill out block pointer
             get_block_header_ptr_ref( aligned_area ) = block;
@@ -269,15 +308,32 @@ namespace azul
         */
         void grow_pool()
         {
-            // allocate new pool block
-            auto new_pool_block = reinterpret_cast< intptr_t >( virtual_alloc( pool_block_size() ) );
+            // try lock pool for growing
+            if ( auto pool = pool_.fetch_or( hazard_, std::memory_order_acquire ); ( pool & hazard_ ) == 0 )
+            {
+                // allocate new pool block
+                auto new_pool_block = reinterpret_cast< intptr_t >( virtual_alloc( pool_block_size() ) );
 
-            // initialize pointer to unallocated space
-            reinterpret_cast< pool_block_header* >( new_pool_block )->unallocated_ = ceil( new_pool_block + sizeof( pool_block_header ), granularity_ );
+                // fill next field
+                reinterpret_cast< pool_block_header* >( new_pool_block )->next_ = pool & ~hazard_;
 
-            // put new block on the top of the pool
-            reinterpret_cast< pool_block_header* >( new_pool_block )->next_ = pool_;
-            pool_ = new_pool_block;
+                // initialize pointer to unallocated space
+                auto& unallocated_ref = reinterpret_cast< pool_block_header* >( new_pool_block )->unallocated_;
+                unallocated_ref.store( ceil( new_pool_block + sizeof( pool_block_header ), granularity_ ), std::memory_order_relaxed );
+
+                // put new block on top of the pool
+                pool_.store( new_pool_block, std::memory_order_release );
+
+                // notify waiting threads that pool growing completed
+                grow_cv_.notify_all();
+            }
+            else
+            {
+                // allocation of new pool block is expansive operation, so just put current thread asleep until growing thread will have completed
+                mutex_type fake_mutex;
+                lock_type fake_lock( fake_mutex );
+                grow_cv_.wait( fake_lock );
+            }
         }
 
 
@@ -292,37 +348,61 @@ namespace azul
         */
         void* allocate_on_pool( std::size_t bytes, std::size_t alignment )
         {
+            // get current pool pointer
+            auto current_pool = pool_.load( std::memory_order_acquire ) & ~hazard_;
+
             while ( true )
             {
-                // through the pool blocks
-                auto current_pool_block = pool_;
+                // search through pool blocks
+                auto current_pool_block = current_pool;
                 while ( current_pool_block )
                 {
-                    // get pointer to unallocated memory inside the block
-                    auto& unallocated = reinterpret_cast< pool_block_header* >( current_pool_block )->unallocated_;
+                    // get reference to unallocated field
+                    auto& unallocated_ref = reinterpret_cast< pool_block_header* >( current_pool_block )->unallocated_;
 
-                    // get aligned pointer with respect to block's fields
-                    auto aligned_area = ceil( unallocated + sizeof( size_type ) + sizeof( pointer_type ), alignment );
-
-                    // calculate end of the block
-                    auto tile = ceil( aligned_area + bytes, granularity_ );
-
-                    // if pool block has enough unallocated space
-                    if ( tile <= current_pool_block + pool_block_size() )
+                    while ( true )
                     {
-                        // fill <block size> field
-                        *reinterpret_cast< size_type* >( unallocated ) = static_cast< size_type >( tile - unallocated );
+                        // get current pointer to unallocated area inside current block pool
+                        auto unallocated = unallocated_ref.load( std::memory_order_acquire );
 
-                        // fill <block head pointer> field
-                        get_block_header_ptr_ref( aligned_area ) = unallocated;
+                        // get aligned pointer with respect to block's fields
+                        auto aligned_area = ceil( unallocated + sizeof( size_type ) + sizeof( pointer_type ), alignment );
 
-                        // allocate block
-                        unallocated = tile;
+                        // calculate end of the block
+                        auto tile = ceil( aligned_area + bytes, granularity_ );
 
-                        // return pointer to aligned region as the result
-                        return reinterpret_cast< void* >( aligned_area );
+                        // if pool block has NOT enough unallocated space
+                        if ( tile > current_pool_block + pool_block_size() ) break;
+
+                        // try allocate required memory block from current pool block
+                        if ( unallocated_ref.compare_exchange_weak( unallocated, tile, std::memory_order_acq_rel, std::memory_order_relaxed ) )
+                        {
+                            // gotcha! -> fill block size field
+                            *reinterpret_cast< size_type* >( unallocated ) = static_cast< size_type >( tile - unallocated );
+
+                            // fill block head pointer
+                            get_block_header_ptr_ref( aligned_area ) = unallocated;
+
+                            // return pointer to aligned region as the result
+                            return reinterpret_cast< void* >( aligned_area );
+                        }
+
+                        // another thread outrun this one -> try again on current pool block
                     }
+
+                    // current block does not have enough space -> proceed to the next one
                     current_pool_block = reinterpret_cast< pool_block_header* >( current_pool_block )->next_;
+                }
+
+                // get pool pointer
+                auto new_pool = pool_.load( std::memory_order_acquire ) & ~hazard_;
+
+                // if just received value is not equal to current pool pointer -> somebody else has already grown the pool
+                if ( new_pool != current_pool )
+                {
+                    // repeat with new pool pointer
+                    current_pool = new_pool;
+                    continue;
                 }
 
                 // if there is not pool block capable to fit requested block - grow the pool
@@ -437,11 +517,21 @@ namespace azul
         */
         void* do_allocate( std::size_t bytes, std::size_t alignment ) override
         {
-            if ( !bytes ) throw std::invalid_argument( "azul::heap::do_allocate(): invalid requested size" );
-            if ( !alignment || static_cast< size_type >( alignment ) > system_page_size() ) throw std::invalid_argument( "azul::heap::do_allocate(): invalid requested alignment" );
+            if ( !bytes )
+            {
+                throw std::invalid_argument( "azul::lock_free_memory_resource::do_allocate(): invalid requested size" );
+            }
+
+            // check alignment
+            if ( !alignment ||
+                ( alignment & ( alignment - 1 ) ) != 0 ||
+                static_cast< size_type >( alignment ) > system_page_size() )
+            {
+                throw std::invalid_argument( "azul::lock_free_memory_resource::do_allocate(): invalid requested alignment" );
+            }
 
             // calculate size of pool block that could fit requested region
-            auto required_pool_block_size = ceil( ceil( ceil( sizeof( size_type ) + sizeof( pointer_type ), granularity_ ) + sizeof( size_type ) + sizeof( pointer_type ), alignment ) + bytes, granularity_ );
+            auto required_pool_block_size = ceil( ceil( ceil( sizeof( pool_block_header ), granularity_ ) + piece_internal_fields_size_, alignment ) + bytes, granularity_ );
             if ( required_pool_block_size < 0 ) throw std::bad_alloc();
 
             // if block too large to be allocated on pool
@@ -450,8 +540,6 @@ namespace azul
                 // allocate block directly in the process's virtual space
                 return allocate_large_block( bytes, alignment );
             }
-
-            lock_type lock( guard_ );
 
             // try allocate block on garbage
             if ( auto block = allocate_on_garbage( bytes, alignment ) )
@@ -513,7 +601,7 @@ namespace azul
         
         @throw std::bad_alloc if memory is low
         */
-        heap() { grow_pool(); }
+        lock_free_memory_resource() { grow_pool(); }
 
 
         /** Destructor
@@ -522,13 +610,14 @@ namespace azul
 
         @throw never
         */
-        ~heap()
+        ~lock_free_memory_resource()
         {
-            while ( pool_ )
+            auto pool = pool_.load( std::memory_order_acquire );
+            while ( pool )
             {
-                auto next = reinterpret_cast< pool_block_header* >( pool_ )->next_;
-                virtual_free( reinterpret_cast< void* >( pool_ ), pool_block_size() );
-                pool_ = next;
+                auto next = reinterpret_cast< pool_block_header* >( pool )->next_;
+                virtual_free( reinterpret_cast< void* >( pool ), pool_block_size() );
+                pool = next;
             }
         }
     };
