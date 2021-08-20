@@ -98,32 +98,13 @@ namespace thinks
         // allows access to the private part
         template < typename HeapType > friend struct ut::accessor;
 
+
         /** Representation of pointer */
         using pointer_type = intptr_t;
 
+
         /** Representation of a size */
         using size_type = ptrdiff_t;
-
-        /** Holds pool block header */
-        struct pool_block_header
-        {
-            std::atomic< pointer_type > unallocated_;   //< pointer to unallocated area inside a pool block
-            pointer_type next_;                         //< poniter to the next pool block
-        };
-
-        /** Holds */
-        struct garbage_block_header
-        {
-            size_type size_;
-            std::atomic< pointer_type > next_;
-        };
-
-        static constexpr size_type piece_internal_fields_size_ = sizeof( size_type ) + sizeof( pointer_type );
-        static constexpr pointer_type hazard_ = 1;
-
-        std::atomic< pointer_type > pool_ = 0;
-        std::atomic< pointer_type > garbage_ = 0;
-        std::condition_variable grow_cv_;
 
 
         /** Rounds given number upward with given modulo
@@ -154,10 +135,38 @@ namespace thinks
         }
 
 
+        /** Holds pool block internal fields */
+        struct pool_block_header
+        {
+            std::atomic< pointer_type > unallocated_;   //< pointer to unallocated area inside a pool block
+            pointer_type next_;                         //< poniter to the next pool block
+        };
+
+
+        /** Holds internal data of a deallocated memory block*/
+        struct garbage_block_header
+        {
+            size_type size_;
+            std::atomic< pointer_type > next_;
+        };
+
+
         /** lock_free_memory_resource granularity, i.e. lock_free_memory_resource allocation quantum
         */
         static_assert( Policy::granularity, "Policy::granularity supposed to be positive integer" );
         static constexpr size_type granularity_ = ceil( Policy::granularity, std::hardware_destructive_interference_size );
+
+        static constexpr size_type piece_internal_fields_size_ = sizeof( size_type ) + sizeof( pointer_type );
+
+        static constexpr size_type pool_block_header_size_ = ceil( sizeof( pool_block_header ), granularity_ );
+
+        static constexpr size_type garbage_block_header_size = sizeof( garbage_block_header );
+
+        static constexpr pointer_type hazard_ = 1;
+
+        std::atomic< pointer_type > pool_ = 0;
+        std::atomic< pointer_type > garbage_ = 0;
+        std::condition_variable grow_cv_;
 
 
         /** Cycles given action till returned value statys hazarded (the lowest bit is signalled)
@@ -330,8 +339,8 @@ namespace thinks
             else
             {
                 // allocation of new pool block is expansive operation, so just put current thread asleep until growing thread will have completed
-                mutex_type fake_mutex;
-                lock_type fake_lock( fake_mutex );
+                std::mutex fake_mutex;
+                std::unique_lock< std::mutex > fake_lock( fake_mutex );
                 grow_cv_.wait( fake_lock );
             }
         }

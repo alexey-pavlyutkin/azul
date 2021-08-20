@@ -41,10 +41,10 @@ namespace thinks
             using garbage_block_header_type = typename HeapType::garbage_block_header;
 
             static constexpr auto granularity = HeapType::granularity_;
+            static constexpr auto piece_internal_fields_size = HeapType::piece_internal_fields_size_;
             inline static const auto pool_block_size = HeapType::pool_block_size();
             inline static const auto pool_block_capacity = HeapType::pool_block_capacity();
             static constexpr auto pool_block_header_size = HeapType::ceil( sizeof( pool_block_header_type ), granularity );
-            static constexpr auto piece_internal_fields_size = HeapType::piece_internal_fields_size;
 
             static pointer_type ceil( pointer_type value, size_type mod ) noexcept { return HeapType::ceil( value, mod ); }
             static pointer_type floor( pointer_type value, size_type mod ) noexcept { return HeapType::floor( value, mod ); }
