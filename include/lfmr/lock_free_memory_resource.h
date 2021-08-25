@@ -33,6 +33,7 @@
 #include <type_traits>
 #include <atomic>
 #include <thread>
+#include <assert.h>
 #ifdef _WIN32
 #   include <windows.h>
 #   ifdef max
@@ -71,7 +72,7 @@ namespace std
 #endif
 
 
-namespace thinks
+namespace bits
 {
     //
     // forwarding declaration of UT's accessor
@@ -116,6 +117,7 @@ namespace thinks
         */
         static constexpr pointer_type ceil( pointer_type value, size_type mod ) noexcept
         {
+            assert( mod && ( mod & ( mod - 1 ) ) == 0 );
             auto mask = mod - 1;
             return ( ( value & mask ) != 0 ) ? ( value | mask ) + 1 : value;
         }
@@ -130,6 +132,7 @@ namespace thinks
         */
         static constexpr pointer_type floor( pointer_type value, size_type mod ) noexcept
         {
+            assert( mod && ( mod & ( mod - 1 ) ) == 0 );
             auto mask = mod - 1;
             return value & ~mask;
         }
@@ -151,22 +154,28 @@ namespace thinks
         };
 
 
-        /** lock_free_memory_resource granularity, i.e. lock_free_memory_resource allocation quantum
-        */
+        /** memory granularity or allocation quantum, minimum amount of memory taken by allocated block */
         static_assert( Policy::granularity, "Policy::granularity supposed to be positive integer" );
         static constexpr size_type granularity_ = ceil( Policy::granularity, std::hardware_destructive_interference_size );
 
+        /** Cummulative size of internal fields of allocated memory block */
         static constexpr size_type piece_internal_fields_size_ = sizeof( size_type ) + sizeof( pointer_type );
 
+        /** Size of pool block header */
         static constexpr size_type pool_block_header_size_ = ceil( sizeof( pool_block_header ), granularity_ );
 
+        /** Size of deallocated block header */
         static constexpr size_type garbage_block_header_size = sizeof( garbage_block_header );
 
+
+        /** */
         static constexpr pointer_type hazard_ = 1;
 
-        std::atomic< pointer_type > pool_ = 0;
-        std::atomic< pointer_type > garbage_ = 0;
-        std::condition_variable grow_cv_;
+
+        // data members 
+        std::atomic< pointer_type > pool_ = 0;      //< pointer to the first pool block
+        std::atomic< pointer_type > garbage_ = 0;   //< pointer to the first deallocated block
+        std::condition_variable grow_cv_;           //< pool grow complete notifier
 
 
         /** Cycles given action till returned value statys hazarded (the lowest bit is signalled)
@@ -277,6 +286,7 @@ namespace thinks
         */
         static pointer_type& get_block_header_ptr_ref( pointer_type piece ) noexcept
         {
+            assert( piece );
             auto block_head_ptr = floor( piece - sizeof( pointer_type ), std::alignment_of_v< pointer_type > );
             return *reinterpret_cast< pointer_type* >( block_head_ptr );
         }
@@ -373,6 +383,7 @@ namespace thinks
                     {
                         // get current pointer to unallocated area inside current block pool
                         auto unallocated = unallocated_ref.load( std::memory_order_acquire );
+                        assert( unallocated % granularity_ == 0 );
 
                         // get aligned pointer with respect to block's fields
                         auto aligned_area = ceil( unallocated + sizeof( size_type ) + sizeof( pointer_type ), alignment );
@@ -507,7 +518,7 @@ namespace thinks
                         auto next = wait_till_hazarded( [&]() noexcept {
                             return next_garbage_block_ref.get().load( std::memory_order_acquire ); }
                         );
-                        current_garbage_block_ref.get().store( next );
+                        current_garbage_block_ref.get().store( next, std::memory_order_release );
                     }
                 }
 

@@ -28,7 +28,7 @@
 #include <iterator>
 
 
-namespace thinks
+namespace bits
 {
     namespace ut
     {

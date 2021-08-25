@@ -9,16 +9,17 @@ set( CMAKE_PDB_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin/$<CONFIG> )
 
 set_property( GLOBAL PROPERTY USE_FOLDERS ON )
 
-option( AZUL_BUILD_REGRESSION "Build regression tests" ON )
-option( AZUL_BUILD_STRESS     "Build stress tests"     OFF )
+option( LFMR_BUILD_REGRESSION "Build regression tests" ON )
+option( LFMR_BUILD_FUZZING "Build fuzzing tests" ON )
+option( LFMR_BUILD_STRESS     "Build stress tests"     OFF )
 
 add_subdirectory( include )
 
-if ( AZUL_BUILD_REGRESSION )
+if ( LFMR_BUILD_REGRESSION )
     enable_testing()
     find_package( GtestEx )
 endif()
 
-if ( AZUL_BUILD_REGRESSION OR AZUL_BUILD_STRESS )
+if ( LFMR_BUILD_REGRESSION OR LFMR_BUILD_FUZZING OR LFMR_BUILD_STRESS )
     add_subdirectory( test )
 endif()

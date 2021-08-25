@@ -8,7 +8,7 @@
 #include <limits>
 #include <cstring>
 
-namespace thinks
+namespace bits
 {
     namespace ut
     {
@@ -225,14 +225,14 @@ namespace thinks
             using policy_type = Policy;
             static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = []() {
-                std::list< std::size_t > result( policy_type::garbage_search_depth - 1, policy_type::granularity );
+                std::list< std::size_t > result( policy_type::garbage_search_depth, policy_type::granularity );
                 result.emplace_back( 2 * policy_type::granularity );
                 return result;
             }( );
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
             inline static const std::list< std::size_t > expected_garbage_state = []() {
-                std::list< std::size_t > result( policy_type::garbage_search_depth - 1, policy_type::granularity );
+                std::list< std::size_t > result( policy_type::garbage_search_depth, policy_type::granularity );
                 return result;
             }( );
         };
@@ -241,15 +241,17 @@ namespace thinks
         struct test_allocate_on_garbage_search_depth_break
         {
             using policy_type = Policy;
+            static constexpr bool is_allocate_on_garbage_test = true;
             inline static const std::list< std::size_t > initial_garbage_state = []() {
-                std::list< std::size_t > result( policy_type::garbage_search_depth, policy_type::granularity );
+                std::list< std::size_t > result( policy_type::garbage_search_depth + 1, policy_type::granularity );
                 result.emplace_back( 2 * policy_type::granularity );
                 return result;
             }( );
             static constexpr std::size_t requested_size = policy_type::granularity - sizeof( ptrdiff_t ) - sizeof( intptr_t ) + 1;
             static constexpr std::size_t requested_alignment = sizeof( ptrdiff_t ) + sizeof( intptr_t );
             inline static const std::list< std::size_t > expected_garbage_state = []() {
-                std::list< std::size_t > result( policy_type::garbage_search_depth, policy_type::granularity );
+                std::list< std::size_t > result( policy_type::garbage_search_depth + 1, policy_type::granularity );
+                result.emplace_back( 2 * policy_type::granularity );
                 return result;
             }( );
         };
