@@ -3,7 +3,7 @@ if ( LFMR_BUILD_REGRESSION )
 endif()
 
 if ( LFMR_BUILD_FUZZING )
-    add_subdirectory( fuzzing )
+#    add_subdirectory( fuzzing )
 endif()
 
 if ( LFMR_BUILD_STRESS )

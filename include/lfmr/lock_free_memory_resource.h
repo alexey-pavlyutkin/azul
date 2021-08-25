@@ -63,12 +63,19 @@
 #       define CACHELINE_SIZE 64
 #   endif
 
-namespace std
+namespace bits
 {
-    static constexpr size_t hardware_destructive_interference_size = CACHELINE_SIZE;
+    static constexpr size_t cache_line_size = CACHELINE_SIZE;
 }
 
 #   undef CACHELINE_SIZE
+#else
+
+namespace bits
+{
+    static constexpr size_t cache_line_size = std::hardware_destructive_interference_size;
+}
+
 #endif
 
 
@@ -80,18 +87,30 @@ namespace bits
     namespace ut { template < typename lock_free_memory_resource > struct accessor; }
 
 
-    /** Default lock_free_memory_resource policy
+    /** Default policy
     */
     struct default_policy
     {
-        static constexpr std::size_t block_size = 1 << 16;                                      //< desired pool block size in bytes
-        static constexpr std::size_t granularity = std::hardware_destructive_interference_size; //< desired lock_free_memory_resource granularity
-        static constexpr std::size_t garbage_search_depth = 64;                                 //< desired depth of garbage search
-        static constexpr std::size_t spin_limit = 1024;                                         //< desired number of spins before thread goes asleep
+        static constexpr std::size_t block_size = 1 << 16;          //< desired pool block size in bytes
+        static constexpr std::size_t granularity = cache_line_size; //< desired lock_free_memory_resource granularity
+        static constexpr std::size_t garbage_search_depth = 64;     //< desired depth of garbage search
+        static constexpr std::size_t spin_limit = 1024;             //< desired number of spins before thread goes asleep
     };
 
 
-    /** Implements lock free monotonic memory resource
+    /** Implements lock free monotonic memory resource with the following guaranties
+
+    - deallocation is always WAIT FREE
+    - allocation is LOCK FREE except the following cases:
+        - allocated pool exhausted (use initial_buffer_size to reserve required amount of memory upon construction)
+        - requested piece exceed maximum size to be allocated on pool
+    - if active defragmentation is disabled and there is only one thread allocating from the resource then
+      the previous guarantee turns into WAIT FREE
+
+    Implemented by two linked lists: the pool that is a number of blocks allocated in process's virtual space,
+    and garbage that is list of released memory pieces available for following allocations
+
+    @tparam Policy - set of static parameters to tune the class
     */
     template < typename Policy = default_policy >
     class lock_free_memory_resource : public std::pmr::memory_resource
@@ -111,7 +130,7 @@ namespace bits
         /** Rounds given number upward with given modulo
 
         @param [in] value - value to be rounded
-        @param [in] mod - modulo (MUST be a power of 2 )
+        @param [in] mod - modulo ( MUST be a power of 2 )
         @retval a multiple of mod equal or greater than given value
         @throw never
         */
@@ -126,7 +145,7 @@ namespace bits
         /** Rounds given number downward with given modulo
 
         @param [in] value - value to be rounded
-        @param [in] mod - modulo
+        @param [in] mod - modulo ( MUST be a power of 2 )
         @retval a multiple of mod equal or lesser than given value
         @throw never
         */
@@ -143,14 +162,15 @@ namespace bits
         {
             std::atomic< pointer_type > unallocated_;   //< pointer to unallocated area inside a pool block
             pointer_type next_;                         //< poniter to the next pool block
+            size_type size_;                            //< size of block
         };
 
 
         /** Holds internal data of a deallocated memory block*/
         struct garbage_block_header
         {
-            size_type size_;
-            std::atomic< pointer_type > next_;
+            size_type size_;                            //< size of block
+            std::atomic< pointer_type > next_;          //< next block in the chain
         };
 
 
@@ -164,11 +184,10 @@ namespace bits
         /** Size of pool block header */
         static constexpr size_type pool_block_header_size_ = ceil( sizeof( pool_block_header ), granularity_ );
 
-        /** Size of deallocated block header */
+        /** Size of released block header */
         static constexpr size_type garbage_block_header_size = sizeof( garbage_block_header );
 
-
-        /** */
+        /** Hazard bit in unused part of pointer value, signals that hazarded pointer is locked by another thread */
         static constexpr pointer_type hazard_ = 1;
 
 
@@ -222,13 +241,14 @@ namespace bits
 
         /** Provides actual pool block size with respect to desired value and target system capabilities
         
+        @param [in] desired - desired pool block size
         @retval actual pool block size
         @throw never
         */
-        static size_type pool_block_size() noexcept
+        static size_type pool_block_size( size_type desired_size = 0 ) noexcept
         {
             static_assert( Policy::block_size, "Policy::block_size supposed to be positive integer" );
-            static size_type value = ceil( Policy::block_size, system_page_size() );
+            static size_type value = ceil( desired_size ? desired_size : Policy::block_size, system_page_size() );
             return value;
         };
 
@@ -325,30 +345,42 @@ namespace bits
 
         @throw std::bad_alloc on failture
         */
-        void grow_pool()
+        void grow_pool( std::size_t desired_size = 0 )
         {
             // try lock pool for growing
-            if ( auto pool = pool_.fetch_or( hazard_, std::memory_order_acquire ); ( pool & hazard_ ) == 0 )
+            if ( auto pool = pool_.fetch_or( hazard_, std::memory_order_acq_rel ); ( pool & hazard_ ) == 0 )
             {
+                // determine desired placement of new pool block immediately after the top pool block
+                void* desired = pool ? reinterpret_cast< void* >( pool + reinterpret_cast< pool_block_header* >( pool )->size_ ) : nullptr;
+
                 // allocate new pool block
-                auto new_pool_block = reinterpret_cast< intptr_t >( virtual_alloc( pool_block_size() ) );
+                auto size = pool_block_size( desired_size );
+                if ( auto allocated = virtual_alloc( size );  allocated == desired )
+                {
+                    // if new block allocated right after the top pool block just modify size of the top pool block
+                    reinterpret_cast< pool_block_header* >( pool )->size_ += size;
 
-                // fill next field
-                reinterpret_cast< pool_block_header* >( new_pool_block )->next_ = pool & ~hazard_;
+                    // and unlock the pool
+                    pool_.store( pool, std::memory_order_release );
+                }
+                else
+                {
+                    // mark up new pool block header
+                    auto& header = *reinterpret_cast< pool_block_header* >( allocated );
+                    header.next_ = pool & ~hazard_;
+                    header.unallocated_.store( ceil( reinterpret_cast< pointer_type >( allocated ) + sizeof( pool_block_header ), granularity_ ), std::memory_order_relaxed );
+                    header.size_ = size;
 
-                // initialize pointer to unallocated space
-                auto& unallocated_ref = reinterpret_cast< pool_block_header* >( new_pool_block )->unallocated_;
-                unallocated_ref.store( ceil( new_pool_block + sizeof( pool_block_header ), granularity_ ), std::memory_order_relaxed );
-
-                // put new block on top of the pool
-                pool_.store( new_pool_block, std::memory_order_release );
+                    // and put new block on top of the pool
+                    pool_.store( reinterpret_cast< pointer_type >( allocated ), std::memory_order_release );
+                }
 
                 // notify waiting threads that pool growing completed
                 grow_cv_.notify_all();
             }
             else
             {
-                // allocation of new pool block is expansive operation, so just put current thread asleep until growing thread will have completed
+                // allocation of new pool block is expansive operation, so just put current thread asleep until growing will have completed
                 std::mutex fake_mutex;
                 std::unique_lock< std::mutex > fake_lock( fake_mutex );
                 grow_cv_.wait( fake_lock );
@@ -376,13 +408,14 @@ namespace bits
                 auto current_pool_block = current_pool;
                 while ( current_pool_block )
                 {
-                    // get reference to unallocated field
-                    auto& unallocated_ref = reinterpret_cast< pool_block_header* >( current_pool_block )->unallocated_;
+                    // get pool block header
+                    assert( current_pool_block % std::alignment_of_v< pool_block_header > == 0 );
+                    auto& header = *reinterpret_cast< pool_block_header* >( current_pool_block );
 
                     while ( true )
                     {
                         // get current pointer to unallocated area inside current block pool
-                        auto unallocated = unallocated_ref.load( std::memory_order_acquire );
+                        auto unallocated = header.unallocated_.load( std::memory_order_acquire );
                         assert( unallocated % granularity_ == 0 );
 
                         // get aligned pointer with respect to block's fields
@@ -392,10 +425,10 @@ namespace bits
                         auto tile = ceil( aligned_area + bytes, granularity_ );
 
                         // if pool block has NOT enough unallocated space
-                        if ( tile > current_pool_block + pool_block_size() ) break;
+                        if ( tile > current_pool_block + header.size_ ) break;
 
                         // try allocate required memory block from current pool block
-                        if ( unallocated_ref.compare_exchange_weak( unallocated, tile, std::memory_order_acq_rel, std::memory_order_relaxed ) )
+                        if ( header.unallocated_.compare_exchange_weak( unallocated, tile, std::memory_order_acq_rel, std::memory_order_relaxed ) )
                         {
                             // gotcha! -> fill block size field
                             *reinterpret_cast< size_type* >( unallocated ) = static_cast< size_type >( tile - unallocated );
@@ -618,10 +651,14 @@ namespace bits
         /** Default constructor
 
         Allocates first pool block
-        
+
+        @param [in] initial_buffer_size - desired size of initial pool block
         @throw std::bad_alloc if memory is low
         */
-        lock_free_memory_resource() { grow_pool(); }
+        lock_free_memory_resource( std::size_t initial_buffer_size = 0 )
+        {
+            grow_pool( initial_buffer_size );
+        }
 
 
         /** Destructor
@@ -635,8 +672,10 @@ namespace bits
             auto pool = pool_.load( std::memory_order_acquire );
             while ( pool )
             {
-                auto next = reinterpret_cast< pool_block_header* >( pool )->next_;
-                virtual_free( reinterpret_cast< void* >( pool ), pool_block_size() );
+                auto& header = *reinterpret_cast< pool_block_header* >( pool );
+                auto next = header.next_;
+                auto size = header.size_;
+                virtual_free( reinterpret_cast< void* >( pool ), size );
                 pool = next;
             }
         }
