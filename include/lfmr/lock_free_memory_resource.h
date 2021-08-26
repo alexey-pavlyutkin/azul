@@ -350,7 +350,7 @@ namespace bits
             // try lock pool for growing
             if ( auto pool = pool_.fetch_or( hazard_, std::memory_order_acq_rel ); ( pool & hazard_ ) == 0 )
             {
-                // determine desired placement of new pool block immediately after the top pool block
+                // determine desired placement of new block right after the top pool block
                 void* desired = pool ? reinterpret_cast< void* >( pool + reinterpret_cast< pool_block_header* >( pool )->size_ ) : nullptr;
 
                 // allocate new pool block

@@ -40,8 +40,8 @@ namespace bits
         struct test_heap : ::testing::Test
         {
             using policy_type = typename TestType::policy_type;
-            using heap_type = lock_free_memory_resource< policy_type >;
-            using accessor_type = accessor< heap_type >;
+            using memory_resource_type = lock_free_memory_resource< policy_type >;
+            using accessor_type = accessor< memory_resource_type >;
             using pointer_type = typename accessor_type::pointer_type;
             using size_type = typename accessor_type::size_type;
 
@@ -406,12 +406,12 @@ namespace bits
                 decltype( U::requested_alignment ) requested_alignment = U::requested_alignment
             ) noexcept
             {
-                using heap_type = typename test_heap< U >::heap_type;
+                using memory_resource_type = typename test_heap< U >::memory_resource_type;
 
                 try
                 {
-                    heap_type lock_free_memory_resource;
-                    [[maybe_unused]]auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
+                    memory_resource_type mr;
+                    [[maybe_unused]]auto p = mr.allocate( requested_size, requested_alignment );
                     GTEST_FAIL();
                 }
                 catch ( const typename U::exception_type& )
@@ -446,23 +446,23 @@ namespace bits
                 decltype( U::requested_alignment ) requested_alignment = U::requested_alignment
             ) noexcept
             {
-                using heap_type = typename test_heap< U >::heap_type;
+                using memory_resource_type = typename test_heap< U >::memory_resource_type;
                 using accessor_type = typename test_heap< U >::accessor_type;
 
                 try
                 {
-                    heap_type lock_free_memory_resource;
+                    memory_resource_type mr;
 
                     // check that there is at least one pool block
-                    auto pool_block_begin = accessor_type::pool_begin( lock_free_memory_resource );
-                    EXPECT_NE( accessor_type::pool_end( lock_free_memory_resource ), pool_block_begin );
+                    auto pool_block_begin = accessor_type::pool_begin( mr );
+                    EXPECT_NE( accessor_type::pool_end( mr ), pool_block_begin );
 
                     // get pointer to unallocated space in the pool block
-                    auto pool_block = accessor_type::pool_begin( lock_free_memory_resource );
+                    auto pool_block = accessor_type::pool_begin( mr );
                     auto unallocated = pool_block->unallocated_.load();
 
                     // allocate a peice
-                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
+                    auto p = mr.allocate( requested_size, requested_alignment );
 
                     // check allocated piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
@@ -474,11 +474,11 @@ namespace bits
                     EXPECT_EQ( block_tile, pool_block->unallocated_ );
 
                     // deallocate region
-                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
+                    mr.deallocate( p, requested_size, requested_alignment );
 
                     // check that garbage is not empty
-                    auto garbage_head = accessor_type::garbage_begin( lock_free_memory_resource );
-                    EXPECT_NE( garbage_head, accessor_type::garbage_end( lock_free_memory_resource ) );
+                    auto garbage_head = accessor_type::garbage_begin( mr );
+                    EXPECT_NE( garbage_head, accessor_type::garbage_end( mr ) );
 
                     // check that garbage points exactly to just deallocated block
                     EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( garbage_head ), block_head );
@@ -518,24 +518,24 @@ namespace bits
                 decltype( U::requested_alignment ) requested_alignment = U::requested_alignment
             ) noexcept
             {
-                using heap_type = typename test_heap< U >::heap_type;
+                using memory_resource_type = typename test_heap< U >::memory_resource_type;
                 using accessor_type = typename test_heap< U >::accessor_type;
 
                 try
                 {
-                    heap_type lock_free_memory_resource;
+                    memory_resource_type mr;
 
                     // allocate a half of the 1st pool block
                     auto lock_sz = accessor_type::pool_block_size / 2 - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
-                    auto lock_block = lock_free_memory_resource.allocate( lock_sz, 1 );
+                    auto lock_block = mr.allocate( lock_sz, 1 );
                     ASSERT_TRUE( lock_block );
 
                     // get free space in the 1st pool block
-                    auto pool_head = accessor_type::pool_begin( lock_free_memory_resource );
+                    auto pool_head = accessor_type::pool_begin( mr );
                     auto block_free_space = static_cast< typename accessor_type::pointer_type >( pool_head ) + accessor_type::pool_block_size - pool_head->unallocated_;
 
                     // allocate requested size
-                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
+                    auto p = mr.allocate( requested_size, requested_alignment );
 
                     // check allocated memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
@@ -547,16 +547,16 @@ namespace bits
                     if ( block_size <= block_free_space )
                     {
                         // check that pool didn't grow
-                        EXPECT_EQ( pool_head, accessor_type::pool_begin( lock_free_memory_resource ) );
+                        EXPECT_EQ( pool_head, accessor_type::pool_begin( mr ) );
                     }
                     else
                     {
                         // else make sure the pool has grown
-                        EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( pool_head ), accessor_type::pool_begin( lock_free_memory_resource )->next_ );
+                        EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( pool_head ), accessor_type::pool_begin( mr )->next_ );
                     }
 
-                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
-                    lock_free_memory_resource.deallocate( lock_block, lock_sz, 1 );
+                    mr.deallocate( p, requested_size, requested_alignment );
+                    mr.deallocate( lock_block, lock_sz, 1 );
                 }
                 catch ( ... )
                 {
@@ -585,12 +585,12 @@ namespace bits
                 decltype( U::is_trace_pool_test ) = U::is_trace_pool_test
             ) noexcept
             {
-                using heap_type = typename test_heap< U >::heap_type;
+                using memory_resource_type = typename test_heap< U >::memory_resource_type;
                 using accessor_type = typename test_heap< U >::accessor_type;
 
                 try
                 {
-                    heap_type lock_free_memory_resource;
+                    memory_resource_type mr;
 
                     std::size_t half_block_sz = accessor_type::pool_block_size / 2 - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
                     std::size_t full_block_sz = accessor_type::pool_block_size - accessor_type::pool_block_header_size - accessor_type::piece_internal_fields_size;
@@ -599,19 +599,19 @@ namespace bits
                     std::list< std::tuple< std::size_t, std::size_t, void* > > pieces;
                     for ( auto sz : { full_block_sz, half_block_sz, full_block_sz } )
                     {
-                        void* piece = lock_free_memory_resource.allocate( sz, 1 );
+                        void* piece = mr.allocate( sz, 1 );
                         ASSERT_TRUE( piece );
                         pieces.emplace_back( sz, 1, piece );
                     }
-                    auto pool_size = accessor_type::pool_size( lock_free_memory_resource );
+                    auto pool_size = accessor_type::pool_size( mr );
                     ASSERT_EQ( 3, pool_size );
 
-                    auto capable_pool_block = ++accessor_type::pool_begin( lock_free_memory_resource );
+                    auto capable_pool_block = ++accessor_type::pool_begin( mr );
                     auto unallocated = capable_pool_block->unallocated_.load();
 
                     // allocate a piece that can fit into 2nd pool block
                     std::size_t sz = accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size;
-                    auto p = lock_free_memory_resource.allocate( accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size, 1 );
+                    auto p = mr.allocate( accessor_type::pool_block_size / 2 - accessor_type::piece_internal_fields_size, 1 );
                     EXPECT_TRUE( p );
                     pieces.emplace_back( sz, 1, p );
 
@@ -619,14 +619,14 @@ namespace bits
                     test_heap< U >::check_memory_piece( p, sz, 1 );
 
                     // make sure exactly 2nd pool block fits the piece
-                    EXPECT_EQ( pool_size, accessor_type::pool_size( lock_free_memory_resource ) );
+                    EXPECT_EQ( pool_size, accessor_type::pool_size( mr ) );
                     auto [block_head, block_size] = test_heap< U >::get_piece_internal_fields( p );
                     EXPECT_LE( unallocated, block_head );
                     EXPECT_LE( block_head + block_size, capable_pool_block->unallocated_ );
 
                     for ( auto [size, alignment, piece] : pieces )
                     {
-                        lock_free_memory_resource.deallocate( piece, size, alignment );
+                        mr.deallocate( piece, size, alignment );
                     }
                 }
                 catch ( ... )
@@ -660,12 +660,12 @@ namespace bits
                 const decltype( U::expected_garbage_state ) & expected_garbage_state = U::expected_garbage_state
             ) noexcept
             {
-                using heap_type = typename test_heap< U >::heap_type;
+                using memory_resource_type = typename test_heap< U >::memory_resource_type;
                 using accessor_type = typename test_heap< U >::accessor_type;
 
                 try
                 {
-                    heap_type lock_free_memory_resource;
+                    memory_resource_type mr;
 
                     // prepare initial garbage state
                     std::stack< std::tuple< void*, std::size_t, std::size_t, std::size_t > > pieces;
@@ -673,35 +673,35 @@ namespace bits
                     {
                         ASSERT_EQ( 0, block_size % test_heap< U >::policy_type::granularity );
                         auto piece_size = block_size - accessor_type::piece_internal_fields_size;
-                        auto p = lock_free_memory_resource.allocate( piece_size, 1 );
+                        auto p = mr.allocate( piece_size, 1 );
                         ASSERT_TRUE( p );
                         pieces.emplace( p, piece_size, 1, block_size );
                     }
                     while ( !pieces.empty() )
                     {
                         auto [p, piece_size, alignment, block_size] = pieces.top();
-                        lock_free_memory_resource.deallocate( p, piece_size, 1 );
-                        ASSERT_EQ( static_cast< typename accessor_type::size_type >( block_size ), accessor_type::garbage_begin( lock_free_memory_resource )->size_ );
+                        mr.deallocate( p, piece_size, 1 );
+                        ASSERT_EQ( static_cast< typename accessor_type::size_type >( block_size ), accessor_type::garbage_begin( mr )->size_ );
                         pieces.pop();
                     }
-                    ASSERT_EQ( initial_garbage_state.size(), accessor_type::garbage_size( lock_free_memory_resource ) );
+                    ASSERT_EQ( initial_garbage_state.size(), accessor_type::garbage_size( mr ) );
 
                     // allocate requested memory piece
-                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
+                    auto p = mr.allocate( requested_size, requested_alignment );
 
                     // test memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
 
                     // check garbage state against expected
-                    EXPECT_EQ( expected_garbage_state.size(), accessor_type::garbage_size( lock_free_memory_resource ) );
+                    EXPECT_EQ( expected_garbage_state.size(), accessor_type::garbage_size( mr ) );
                     auto it = std::begin( expected_garbage_state );
-                    auto garbage_it = accessor_type::garbage_begin( lock_free_memory_resource );
+                    auto garbage_it = accessor_type::garbage_begin( mr );
                     for ( ; it != std::end( expected_garbage_state ); ++it, ++garbage_it )
                     {
                         EXPECT_EQ( static_cast< typename accessor_type::pointer_type >( *it ), garbage_it->size_ );
                     }
 
-                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
+                    mr.deallocate( p, requested_size, requested_alignment );
                 }
                 catch ( ... )
                 {
@@ -732,25 +732,25 @@ namespace bits
                 decltype( U::requested_alignment ) requested_alignment = U::requested_alignment
             ) noexcept
             {
-                using heap_type = typename test_heap< U >::heap_type;
+                using memory_resource_type = typename test_heap< U >::memory_resource_type;
                 using accessor_type = typename test_heap< U >::accessor_type;
 
                 try
                 {
-                    heap_type lock_free_memory_resource;
+                    memory_resource_type mr;
 
                     // get current pool state
-                    auto pool_head = accessor_type::pool_begin( lock_free_memory_resource );
+                    auto pool_head = accessor_type::pool_begin( mr );
                     auto unallocated = pool_head->unallocated_.load();
 
                     // allocate requested memory piece
-                    auto p = lock_free_memory_resource.allocate( requested_size, requested_alignment );
+                    auto p = mr.allocate( requested_size, requested_alignment );
 
                     // test memory piece
                     test_heap< U >::check_memory_piece( p, requested_size, requested_alignment );
                     
                     // check that pool stays untouched
-                    EXPECT_EQ( pool_head, accessor_type::pool_begin( lock_free_memory_resource ) );
+                    EXPECT_EQ( pool_head, accessor_type::pool_begin( mr ) );
                     EXPECT_EQ( unallocated, pool_head->unallocated_ );
 
                     // get block head and size
@@ -758,7 +758,7 @@ namespace bits
                     auto block_size = *reinterpret_cast< typename accessor_type::size_type* >( block_head );
 
                     // gotcha! deallocate piece
-                    lock_free_memory_resource.deallocate( p, requested_size, requested_alignment );
+                    mr.deallocate( p, requested_size, requested_alignment );
 
                     // check that allocated virtual space was released
                     p = accessor_type::virtual_alloc( block_size, reinterpret_cast< void* >( block_head ) );
@@ -782,8 +782,8 @@ namespace bits
 
         TYPED_TEST( test_heap, compare_heaps )
         {
-            using heap_type = typename test_heap< TypeParam >::heap_type;
-            heap_type h1, h2;
+            using memory_resource_type = typename test_heap< TypeParam >::memory_resource_type;
+            memory_resource_type h1, h2;
             EXPECT_TRUE( h1.is_equal( h1 ) );
             EXPECT_FALSE( h1.is_equal( h2 ) );
         }
